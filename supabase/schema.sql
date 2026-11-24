@@ -36,8 +36,10 @@ create table if not exists public.part_numbers (
   number text not null,
   label text,                      -- e.g. "new", "old", "client", or blank
   is_main boolean not null default false,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
+alter table public.part_numbers add column if not exists updated_at timestamptz not null default now();
 create unique index if not exists part_numbers_number on public.part_numbers (lower(number));
 create index if not exists part_numbers_part on public.part_numbers (part_id);
 

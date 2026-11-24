@@ -420,9 +420,13 @@ function partCell(pid, used) {
   const usedNote = used && lc(used) !== lc(mainNo(pid)) ? `<div class="alias">as ${esc(used)}</div>` : '';
   return `<span class="pn">${esc(mainNo(pid))}</span>${others.length ? ` <span class="alias">/ ${others.map(esc).join(' / ')}</span>` : ''}${usedNote}`;
 }
+// Client numbers carry a "WC" suffix (8481WC = 8481): accept either.
+const stripWC = q => q.replace(/\s*wc$/i, '');
+const partIdFor = num => D.partByNumber.get(lc(num)) || D.partByNumber.get(lc(stripWC(String(num || '').trim()))) || null;
 function matchesPart(pid, q) {
   if (!q) return true;
-  return (D.numbers.get(pid) || []).some(n => lc(n.number).includes(q)) || lc(partDesc(pid)).includes(q);
+  const q2 = stripWC(q) || q;
+  return (D.numbers.get(pid) || []).some(n => lc(n.number).includes(q) || lc(n.number).includes(q2)) || lc(partDesc(pid)).includes(q);
 }
 
 // ───────────────────────── routing ─────────────────────────
@@ -895,7 +899,7 @@ function pickPart(title, { allowNew = true, exclude } = {}) {
   return new Promise(resolve => {
     let active = 0, results = [];
     const search = q => {
-      q = lc(q.trim());
+      q = lc(q.trim()); if (/\dwc$/.test(q)) q = stripWC(q);
       const out = [];
       for (const p of db.parts) {
         if (p.id === exclude) continue;
@@ -1096,7 +1100,7 @@ function pasteLinesSheet(orderId) {
           const qty = qi > 0 ? +toks[qi].replace(/,/g, '') : null;
           const urgent = toks.some((x, i) => i > 0 && /^urgent$/i.test(x));
           const desc = toks.filter((x, i) => i > 0 && i !== qi && !/^urgent$/i.test(x)).join(' ');
-          return { raw: s, number, qty, urgent, desc, part_id: D.partByNumber.get(lc(number)) || null };
+          return { raw: s, number, qty, urgent, desc, part_id: partIdFor(number) };
         });
         $('#pastePreview', el).innerHTML = parsed.length ? `<div class="tbl-wrap" style="margin-top:10px"><table class="tbl"><thead><tr><th>Number</th><th class="num">Qty</th><th>Part found</th><th>Urgent</th></tr></thead><tbody>${parsed.map(r => `<tr><td class="pn">${esc(r.number)}</td><td class="num">${r.qty === null ? '<span class="flag">?</span>' : fmtN(r.qty)}</td><td>${r.part_id ? `${partCell(r.part_id)} <span class="small">${esc(partDesc(r.part_id))}</span>` : `<span class="pill amber">New part</span> ${esc(r.desc || '(no description)')}`}</td><td>${r.urgent ? '<span class="pill red">Urgent</span>' : ''}</td></tr>`).join('')}</tbody></table></div>` : '';
         $('#pasteGo', el).disabled = !parsed.length || parsed.some(r => r.qty === null);
@@ -1106,7 +1110,7 @@ function pasteLinesSheet(orderId) {
         $('#pasteGo', el).disabled = true;
         try {
           for (const r of parsed.filter(r => !r.part_id)) {
-            if (D.partByNumber.has(lc(r.number))) { r.part_id = D.partByNumber.get(lc(r.number)); continue; }
+            if (partIdFor(r.number)) { r.part_id = partIdFor(r.number); continue; }
             const p = await ins('parts', { description: r.desc || '(add description)' });
             await ins('part_numbers', { part_id: p.id, number: r.number, is_main: true });
             r.part_id = p.id;
