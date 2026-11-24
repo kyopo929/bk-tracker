@@ -1,0 +1,9 @@
+{
+  "name": "BK Tracker",
+  "short_name": "BK Tracker",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#eef1f3",
+  "theme_color": "#0f6f7c",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

@@ -1,0 +1,39 @@
+# Same part, two numbers. First column is kept as the part's main number; the second becomes an alias.
+# Old -> New pairs: the NEW number is the main one (company fulfils under it); the old one is an alias.
+# From the pairing sheet (all marked "Same part"; 1680/40-00630 was "Not sure" and is left out).
+kind	main	alias
+pair	09110	8481
+pair	09100	8482
+pair	32341	8656
+pair	00281-1	1215
+pair	40-04743	1206
+pair	12880	1889
+pair	40-19059	1177
+pair	40-00631	1681
+pair	40-06493	4186
+pair	40-08388	1088
+pair	40-04702	1044
+pair	40-19053	4654
+pair	40-02626	5898
+pair	40-02625	2627
+pair	12850	1251
+pair	90-00048	1299
+pair	10940R10	1362
+pair	40-00967	1683
+pair	40-12921	8200
+pair	10860	1162
+pair	10881	1416
+pair	09130-1	1264
+pair	22871	3200
+pair	21270	3639
+pair	40-02616	1627
+pair	10903	3021
+pair	1113	2271
+pair	40-18442	1167
+dup	1193	1241
+dup	2019	3955
+dup	3658	3797
+dup	3800	4370
+dup	4285	4325
+dup	2562	4368
+dup	1617	1634

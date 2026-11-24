@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>BK Tracker</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0f6f7c">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/*CSS*/
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <aside class="side" aria-label="Sections">
+    <div class="brand"><span class="brand-mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c3 4 5.5 7 5.5 10.2A5.5 5.5 0 0 1 6.5 13.2C6.5 10 9 7 12 3z"/></svg></span>BK Tracker</div>
+    <nav class="nav" id="nav"></nav>
+    <div class="side-foot" id="sideFoot"></div>
+  </aside>
+  <main class="main">
+    <header class="head">
+      <h1 id="viewTitle">Outstanding</h1><span class="sub" id="viewSub"></span>
+      <span class="spacer"></span>
+      <label class="search" for="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg><input id="search" type="search" placeholder="Search part, PO, delivery note…" autocomplete="off" aria-label="Search"><kbd>/</kbd></label>
+    </header>
+    <div class="toolbar" id="toolbar"></div>
+    <div class="content" id="content"><div class="empty">Loading…</div></div>
+  </main>
+</div>
+<div class="sheet-bg" id="sheet" hidden></div>
+<div class="toast" id="toast" role="status" hidden></div>
+<script>
+// The publishable key is meant to be public; access is protected by row-level security in Supabase.
+window.BK_CONFIG = {
+  supabaseUrl: 'https://esyaxplcxvvtjdthidyu.supabase.co',
+  supabaseKey: 'sb_publishable_vlXiCn7sTkg0HgVt-1RaTQ_YAi0h2mU'
+};
+</script>
+<script src="vendor/supabase.js"></script>
+<script>
+/*APP*/
+</script>
+</body>
+</html>

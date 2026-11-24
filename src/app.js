@@ -1,0 +1,952 @@
+/* BK Tracker — order tracking for the Burj Khalifa spares.
+   Everything loads once into memory (a few thousand rows at most) and every view is worked out from it,
+   so screens switch instantly. Each change is written to Supabase straight away. */
+'use strict';
+
+// ───────────────────────── helpers ─────────────────────────
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const nf = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
+const fmtN = v => (v === null || v === undefined || v === '') ? '' : nf.format(+v);
+const money = (v, cur) => (v === null || v === undefined || v === '') ? '' : (cur ? cur + ' ' : '') + new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(+v);
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const fmtD = d => { if (!d) return ''; const [y, m, dd] = String(d).slice(0, 10).split('-'); return `${+dd} ${MONTHS[+m - 1]} ${y}`; };
+const todayISO = () => { const t = new Date(); return new Date(t.getTime() - t.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
+const daysSince = d => d ? Math.floor((Date.parse(todayISO()) - Date.parse(String(d).slice(0, 10))) / 864e5) : null;
+const lc = s => String(s ?? '').toLowerCase();
+const sum = (arr, f) => arr.reduce((a, x) => a + (+f(x) || 0), 0);
+const ICON = {
+  plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+  trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
+  edit: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4z"/></svg>',
+  swap: '<svg viewBox="0 0 24 24"><path d="M7 7h11l-3-3M17 17H6l3 3"/></svg>',
+  link: '<svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 6 0l3-3a4 4 0 0 0-6-6l-1 1M14 10a4 4 0 0 0-6 0l-3 3a4 4 0 0 0 6 6l1-1"/></svg>',
+  down: '<svg viewBox="0 0 24 24"><path d="M12 4v12M6 11l6 6 6-6M5 20h14"/></svg>',
+  print: '<svg viewBox="0 0 24 24"><path d="M7 9V3h10v6M7 17H4v-7h16v7h-3M7 14h10v7H7z"/></svg>',
+  out: '<svg viewBox="0 0 24 24"><path d="M5 6h14M5 12h14M5 18h9"/></svg>',
+  box: '<svg viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4zM3 7v10l9 4 9-4V7M12 11v10"/></svg>',
+  truck: '<svg viewBox="0 0 24 24"><path d="M2 6h12v10H2zM14 10h4l3 3v3h-7M6 19a2 2 0 1 0 0-.1M17 19a2 2 0 1 0 0-.1"/></svg>',
+  alert: '<svg viewBox="0 0 24 24"><path d="M12 3l10 18H2L12 3zM12 10v5M12 18h.01"/></svg>',
+  bill: '<svg viewBox="0 0 24 24"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3zM9 8h6M9 12h6"/></svg>',
+  tag: '<svg viewBox="0 0 24 24"><path d="M3 12V4h8l10 10-8 8L3 12zM7.5 7.5h.01"/></svg>',
+  file: '<svg viewBox="0 0 24 24"><path d="M6 3h8l5 5v13H6zM14 3v5h5"/></svg>',
+  clock: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+};
+
+function toast(msg, bad) {
+  const t = $('#toast'); t.textContent = msg; t.className = 'toast' + (bad ? ' bad' : ''); t.hidden = false;
+  clearTimeout(toast._t); toast._t = setTimeout(() => { t.hidden = true; }, bad ? 7000 : 2800);
+}
+function friendlyError(e) {
+  const m = e && (e.message || e.error_description || String(e));
+  if (e && e.code === '23505') {
+    if (/part_numbers_number/.test(m)) return 'That part number is already used by another part.';
+    if (/orders_po/.test(m)) return 'Another order already has that PO number.';
+    if (/deliveries_dn/.test(m)) return 'That delivery note number is already recorded.';
+    return 'That would create a duplicate.';
+  }
+  if (e && e.code === '23503') return 'It is still used elsewhere (on an order or delivery), so it can’t be deleted.';
+  if (/Failed to fetch|NetworkError/i.test(m)) return 'No connection. Your change was not saved.';
+  return m || 'Something went wrong.';
+}
+
+// ───────────────────────── data ─────────────────────────
+const cfg = window.BK_CONFIG;
+const sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey, { auth: { persistSession: true, detectSessionInUrl: true, autoRefreshToken: true } });
+const TABLES = ['parts', 'part_numbers', 'orders', 'order_lines', 'deliveries', 'delivery_lines', 'issues', 'invoices', 'documents'];
+const db = Object.fromEntries(TABLES.map(t => [t, []]));
+let D = {};               // derived indexes, rebuilt after every change
+let loadedAt = 0;
+let user = null;
+
+async function fetchAll(table) {
+  const out = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await sb.from(table).select('*').range(from, from + 999);
+    if (error) throw error;
+    out.push(...data);
+    if (data.length < 1000) return out;
+  }
+}
+async function loadAll() {
+  const res = await Promise.all(TABLES.map(fetchAll));
+  TABLES.forEach((t, i) => { db[t] = res[i]; });
+  loadedAt = Date.now();
+  derive();
+}
+function patchLocal(table, row) {
+  const i = db[table].findIndex(r => r.id === row.id);
+  if (i >= 0) db[table][i] = row; else db[table].push(row);
+}
+async function ins(table, rows) {
+  const many = Array.isArray(rows);
+  const { data, error } = await sb.from(table).insert(many ? rows : [rows]).select();
+  if (error) throw error;
+  data.forEach(r => patchLocal(table, r)); derive();
+  return many ? data : data[0];
+}
+async function upd(table, id, patch) {
+  const { data, error } = await sb.from(table).update(patch).eq('id', id).select();
+  if (error) throw error;
+  if (!data.length) throw new Error('Not saved: the record was not found (deleted elsewhere?). Reload to refresh.');
+  patchLocal(table, data[0]); derive();
+  return data[0];
+}
+async function del(table, id) {
+  const { error } = await sb.from(table).delete().eq('id', id);
+  if (error) throw error;
+  db[table] = db[table].filter(r => r.id !== id);
+  // mirror the database's cascades / set-nulls locally
+  if (table === 'parts') db.part_numbers = db.part_numbers.filter(n => n.part_id !== id);
+  if (table === 'orders') {
+    const gone = new Set(db.order_lines.filter(l => l.order_id === id).map(l => l.id));
+    db.order_lines = db.order_lines.filter(l => l.order_id !== id);
+    db.documents = db.documents.filter(d => d.order_id !== id);
+    db.delivery_lines.forEach(dl => { if (gone.has(dl.order_line_id)) dl.order_line_id = null; });
+    db.issues.forEach(x => { if (gone.has(x.order_line_id)) x.order_line_id = null; });
+    db.deliveries.forEach(x => { if (x.order_id === id) x.order_id = null; });
+    db.invoices.forEach(x => { if (x.order_id === id) x.order_id = null; });
+  }
+  if (table === 'order_lines') { db.delivery_lines.forEach(dl => { if (dl.order_line_id === id) dl.order_line_id = null; }); db.issues.forEach(x => { if (x.order_line_id === id) x.order_line_id = null; }); }
+  if (table === 'deliveries') {
+    db.delivery_lines = db.delivery_lines.filter(x => x.delivery_id !== id);
+    db.issues = db.issues.filter(x => x.delivery_id !== id);
+    db.invoices.forEach(x => { if (x.delivery_id === id) x.delivery_id = null; });
+    db.documents.forEach(x => { if (x.delivery_id === id) x.delivery_id = null; });
+  }
+  if (table === 'invoices') db.documents.forEach(x => { if (x.invoice_id === id) x.invoice_id = null; });
+  derive();
+}
+async function act(fn, okMsg) {
+  try { const r = await fn(); if (okMsg) toast(okMsg); render(); return r; }
+  catch (e) { console.error(e); toast(friendlyError(e), true); render(); return undefined; }
+}
+
+const group = (arr, key) => { const m = new Map(); for (const x of arr) { const k = x[key]; if (!m.has(k)) m.set(k, []); m.get(k).push(x); } return m; };
+function derive() {
+  const byId = t => new Map(db[t].map(r => [r.id, r]));
+  D = {
+    part: byId('parts'), order: byId('orders'), line: byId('order_lines'), delivery: byId('deliveries'), invoice: byId('invoices'),
+    numbers: group([...db.part_numbers].sort((a, b) => (b.is_main - a.is_main) || a.number.localeCompare(b.number, undefined, { numeric: true })), 'part_id'),
+    partByNumber: new Map(db.part_numbers.map(n => [lc(n.number), n.part_id])),
+    linesByOrder: group([...db.order_lines].sort((a, b) => a.sort - b.sort || a.created_at.localeCompare(b.created_at)), 'order_id'),
+    linesByPart: group(db.order_lines, 'part_id'),
+    dlByLine: group(db.delivery_lines, 'order_line_id'),
+    dlByDelivery: group(db.delivery_lines, 'delivery_id'),
+    issuesByDelivery: group(db.issues, 'delivery_id'),
+    issuesByLine: group(db.issues, 'order_line_id'),
+    deliveriesByOrder: group(db.deliveries, 'order_id'),
+    invoicesByOrder: group(db.invoices, 'order_id'),
+    invoicesByDelivery: group(db.invoices, 'delivery_id'),
+    docsByOrder: group(db.documents, 'order_id'),
+    docsByDelivery: group(db.documents, 'delivery_id'),
+    L: new Map(), O: new Map(),
+  };
+  const today = todayISO();
+  for (const l of db.order_lines) {
+    const o = D.order.get(l.order_id) || {};
+    const delivered = sum(D.dlByLine.get(l.id) || [], x => x.qty);
+    const shipped = (+l.shipped_before || 0) + delivered;
+    const outstanding = (l.cancelled || o.closed) ? 0 : Math.max(0, (+l.qty || 0) - shipped);
+    const expected = l.expected_date || o.expected_date || null;
+    const openIssues = (D.issuesByLine.get(l.id) || []).filter(i => i.status !== 'Resolved').length;
+    D.L.set(l.id, { delivered, shipped, outstanding, expected, late: !!(expected && outstanding > 0 && expected < today), age: outstanding > 0 ? daysSince(o.po_date) : null, openIssues });
+  }
+  for (const o of db.orders) {
+    const lines = (D.linesByOrder.get(o.id) || []);
+    const active = lines.filter(l => !l.cancelled);
+    const ordered = sum(active, l => l.qty);
+    const outstanding = sum(active, l => D.L.get(l.id).outstanding);
+    const shipped = sum(active, l => Math.min(+l.qty || 0, D.L.get(l.id).shipped));
+    let status;
+    if (o.closed) status = 'Closed';
+    else if (!active.length) status = o.po_number ? 'PO received' : 'Quote sent';
+    else if (outstanding === 0) status = 'Fully shipped';
+    else if (shipped > 0) status = 'Partially shipped';
+    else status = o.po_number ? 'PO received' : 'Quote sent';
+    const openIssues = sum((D.deliveriesByOrder.get(o.id) || []), d => (D.issuesByDelivery.get(d.id) || []).filter(i => i.status !== 'Resolved').length);
+    D.O.set(o.id, { status, lines: lines.length, ordered, outstanding, shipped, pct: ordered ? shipped / ordered : 0, openIssues, late: lines.some(l => D.L.get(l.id).late), urgent: lines.some(l => l.urgent && D.L.get(l.id).outstanding > 0) });
+  }
+}
+const mainNo = pid => ((D.numbers.get(pid) || [])[0] || {}).number || '?';
+const otherNos = pid => (D.numbers.get(pid) || []).slice(1).map(n => n.number);
+const partDesc = pid => (D.part.get(pid) || {}).description || '(part deleted)';
+const orderName = id => { const o = D.order.get(id); return o ? (o.po_number || o.title) : ''; };
+const STATUS_PILL = { 'Quote sent': '', 'PO received': 'blue', 'Partially shipped': 'amber', 'Fully shipped': 'green', 'Closed': '' };
+const statusPill = s => `<span class="pill ${STATUS_PILL[s] || ''}">${esc(s)}</span>`;
+const issuePill = s => `<span class="pill ${s === 'Resolved' ? 'green' : s === 'Open' ? 'red' : 'amber'}">${esc(s)}</span>`;
+function partCell(pid, used) {
+  const others = otherNos(pid);
+  const usedNote = used && lc(used) !== lc(mainNo(pid)) ? `<div class="alias">as ${esc(used)}</div>` : '';
+  return `<span class="pn">${esc(mainNo(pid))}</span>${others.length ? ` <span class="alias">/ ${others.map(esc).join(' / ')}</span>` : ''}${usedNote}`;
+}
+function matchesPart(pid, q) {
+  if (!q) return true;
+  return (D.numbers.get(pid) || []).some(n => lc(n.number).includes(q)) || lc(partDesc(pid)).includes(q);
+}
+
+// ───────────────────────── routing ─────────────────────────
+const NAV = [
+  ['outstanding', 'Outstanding', 'out'], ['orders', 'Orders', 'box'], ['deliveries', 'Deliveries', 'truck'],
+  ['issues', 'Problems', 'alert'], ['invoices', 'Invoices', 'bill'], ['sep'], ['parts', 'Parts', 'tag'],
+  ['documents', 'Documents', 'file'], ['history', 'History', 'clock'],
+];
+const ui = { q: '', outMode: 'part', urgentOnly: false, orderFilter: 'open', showArchived: false, issueFilter: 'open', sort: {} };
+let exportable = null;   // {name, cols, rows} of the table on screen
+function route() { const p = location.hash.replace(/^#\/?/, '').split('/'); return { view: p[0] || 'outstanding', id: p[1] || null, sub: p[2] || null }; }
+const go = h => { location.hash = h; };
+
+function renderNav() {
+  const r = route();
+  const openIssues = db.issues.filter(i => i.status !== 'Resolved').length;
+  const openLines = db.order_lines.filter(l => D.L.get(l.id)?.outstanding > 0).length;
+  const counts = { outstanding: openLines || '', issues: openIssues || '', orders: db.orders.filter(o => !['Fully shipped', 'Closed'].includes(D.O.get(o.id)?.status)).length || '' };
+  $('#nav').innerHTML = NAV.map(n => n[0] === 'sep' ? '<div class="nav-sep"></div>' :
+    `<a href="#/${n[0]}" ${r.view === n[0] ? 'aria-current="page"' : ''}>${ICON[n[2]]}<span class="label">${n[1]}</span><span class="count ${n[0] === 'issues' && openIssues ? 'hot' : ''}">${counts[n[0]] ?? ''}</span></a>`).join('');
+  $('#sideFoot').innerHTML = user ? `<div>${esc(user.email)}</div><div class="row"><button class="btn small" data-act="reload">Reload</button><button class="btn small" data-act="signout">Sign out</button></div>` : '';
+}
+
+function render() {
+  if (!user) return;
+  renderNav();
+  const r = route();
+  exportable = null;
+  const V = VIEWS[r.view] || VIEWS.outstanding;
+  const content = $('#content');
+  const keepScroll = render._last === location.hash ? content.scrollTop : 0;
+  const out = V(r);
+  $('#viewTitle').textContent = out.title;
+  $('#viewSub').innerHTML = out.sub || '';
+  $('#toolbar').innerHTML = (out.tools || '') + (exportable ? `<span class="spacer"></span><button class="btn small" data-act="export">${ICON.down}Export to Excel (CSV)</button><button class="btn small" data-act="print">${ICON.print}Print / PDF</button>` : '');
+  content.innerHTML = out.html;
+  content.scrollTop = keepScroll;
+  render._last = location.hash;
+  document.title = out.title + ' · BK Tracker';
+}
+
+// Generic sortable table that also feeds "Export"
+function table(id, cols, rows, opts = {}) {
+  const s = ui.sort[id];
+  if (s) {
+    const c = cols.find(c => c.key === s.key);
+    if (c) {
+      const val = c.sort || (r => r[c.key]);
+      rows = [...rows].sort((a, b) => {
+        const x = val(a), y = val(b);
+        const cmp = (typeof x === 'number' || typeof y === 'number') ? (x ?? -Infinity) - (y ?? -Infinity) : String(x ?? '').localeCompare(String(y ?? ''), undefined, { numeric: true });
+        return s.dir * cmp;
+      });
+    }
+  }
+  if (opts.export !== false) exportable = { name: opts.name || id, cols, rows };
+  if (!rows.length) return `<div class="tbl-wrap"><div class="empty">${opts.empty || 'Nothing here.'}</div></div>`;
+  const head = cols.map(c => `<th class="${c.num ? 'num' : ''}" ${c.nosort ? '' : `data-sort="${id}:${c.key}" style="cursor:pointer"`}>${esc(c.label)}${s && s.key === c.key ? (s.dir > 0 ? ' ↑' : ' ↓') : ''}</th>`).join('');
+  const body = rows.map(r => `<tr class="${opts.href ? 'click' : ''} ${opts.rowClass ? opts.rowClass(r) : ''}" ${opts.href ? `data-go="${esc(opts.href(r))}"` : ''}>${cols.map(c => `<td class="${c.num ? 'num' : ''} ${c.cls || ''}">${c.html ? c.html(r) : esc(c.text ? c.text(r) : r[c.key])}</td>`).join('')}</tr>`).join('');
+  return `<div class="tbl-wrap"><table class="tbl"><thead><tr>${head}</tr></thead><tbody>${body}</tbody>${opts.foot || ''}</table></div>`;
+}
+
+// ───────────────────────── views ─────────────────────────
+const VIEWS = {};
+
+VIEWS.outstanding = () => {
+  const q = lc(ui.q);
+  const open = db.order_lines.filter(l => D.L.get(l.id).outstanding > 0);
+  const urgentParts = new Set(open.filter(l => l.urgent).map(l => l.part_id));
+  const openIssues = db.issues.filter(i => i.status !== 'Resolved').length;
+  const oldest = Math.max(0, ...open.map(l => D.L.get(l.id).age || 0));
+  const late = open.filter(l => D.L.get(l.id).late).length;
+  const stats = `<div class="stats">
+    <div class="stat"><div class="k">Units outstanding</div><div class="v">${fmtN(sum(open, l => D.L.get(l.id).outstanding))}</div></div>
+    <div class="stat"><div class="k">Parts outstanding</div><div class="v">${new Set(open.map(l => l.part_id)).size}</div></div>
+    <div class="stat ${urgentParts.size ? 'hot' : ''}"><div class="k">Urgent parts</div><div class="v">${urgentParts.size}</div></div>
+    <div class="stat"><div class="k">Open PO lines</div><div class="v">${open.length}</div></div>
+    <div class="stat ${late ? 'hot' : ''}"><div class="k">Past expected date</div><div class="v">${late}</div></div>
+    <div class="stat ${openIssues ? 'hot' : ''}"><div class="k">Open delivery problems</div><div class="v">${openIssues}</div></div>
+    <div class="stat"><div class="k">Oldest open PO</div><div class="v">${oldest ? oldest + ' days' : '–'}</div></div>
+  </div>`;
+  const tools = `<div class="seg"><button data-act="outMode" data-v="part" aria-pressed="${ui.outMode === 'part'}">By part</button><button data-act="outMode" data-v="line" aria-pressed="${ui.outMode === 'line'}">By PO line</button></div>
+    <div class="seg"><button data-act="urgentOnly" data-v="0" aria-pressed="${!ui.urgentOnly}">All</button><button data-act="urgentOnly" data-v="1" aria-pressed="${ui.urgentOnly}">Urgent only</button></div>`;
+  let html;
+  if (ui.outMode === 'part') {
+    const byPart = group(open, 'part_id');
+    let rows = [...byPart].map(([pid, ls]) => ({
+      pid, number: mainNo(pid), desc: partDesc(pid), lines: ls,
+      outstanding: sum(ls, l => D.L.get(l.id).outstanding), urgent: ls.some(l => l.urgent),
+      age: Math.max(...ls.map(l => D.L.get(l.id).age || 0)), late: ls.some(l => D.L.get(l.id).late),
+      pos: ls.map(l => orderName(l.order_id) + ' (' + fmtN(D.L.get(l.id).outstanding) + ')').join(', '),
+    })).filter(r => matchesPart(r.pid, q) || r.pos.toLowerCase().includes(q));
+    if (ui.urgentOnly) rows = rows.filter(r => r.urgent);
+    rows.sort((a, b) => (b.urgent - a.urgent) || (b.age - a.age) || (b.outstanding - a.outstanding));
+    html = table('outPart', [
+      { key: 'number', label: 'Part', html: r => partCell(r.pid), text: r => [mainNo(r.pid), ...otherNos(r.pid)].join(' / ') },
+      { key: 'desc', label: 'Description', cls: 'desc' },
+      { key: 'outstanding', label: 'Outstanding', num: true, html: r => `<b>${fmtN(r.outstanding)}</b>`, text: r => r.outstanding },
+      { key: 'urgent', label: 'Urgent', sort: r => +r.urgent, html: r => r.urgent ? '<span class="pill red">Urgent</span>' : '', text: r => r.urgent ? 'Urgent' : '' },
+      { key: 'age', label: 'Oldest (days)', num: true, html: r => `<span class="${r.late ? 'late' : ''}">${r.age}</span>`, text: r => r.age },
+      { key: 'pos', label: 'On POs', nosort: true, html: r => r.lines.map(l => `<a class="chip" href="#/orders/${l.order_id}" data-stop>${esc(orderName(l.order_id))} <b>${fmtN(D.L.get(l.id).outstanding)}</b>${l.urgent ? ' <span class="flag">!</span>' : ''}</a>`).join(''), text: r => r.pos },
+    ], rows, { href: r => '#/parts/' + r.pid, name: 'Outstanding by part', empty: q ? 'No outstanding parts match your search.' : 'Nothing outstanding. Everything ordered has been delivered.' });
+  } else {
+    let rows = open.map(l => ({ l, ...D.L.get(l.id), o: D.order.get(l.order_id) || {} }))
+      .filter(r => matchesPart(r.l.part_id, q) || lc(r.o.po_number).includes(q) || lc(r.o.title).includes(q));
+    if (ui.urgentOnly) rows = rows.filter(r => r.l.urgent);
+    rows.sort((a, b) => (b.l.urgent - a.l.urgent) || ((b.age || 0) - (a.age || 0)));
+    html = table('outLine', [
+      { key: 'po', label: 'PO', sort: r => r.o.po_number, html: r => `<span class="nowrap">${esc(r.o.po_number || '–')}</span>`, text: r => r.o.po_number },
+      { key: 'title', label: 'Order', sort: r => r.o.title, text: r => r.o.title },
+      { key: 'part', label: 'Part', sort: r => mainNo(r.l.part_id), html: r => partCell(r.l.part_id, r.l.ordered_as), text: r => mainNo(r.l.part_id) + (r.l.ordered_as && lc(r.l.ordered_as) !== lc(mainNo(r.l.part_id)) ? ' (ordered as ' + r.l.ordered_as + ')' : '') },
+      { key: 'desc', label: 'Description', sort: r => partDesc(r.l.part_id), text: r => partDesc(r.l.part_id) },
+      { key: 'qty', label: 'Ordered', num: true, sort: r => +r.l.qty, text: r => fmtN(r.l.qty) },
+      { key: 'shipped', label: 'Shipped', num: true, text: r => fmtN(r.shipped) },
+      { key: 'outstanding', label: 'Outstanding', num: true, html: r => `<b>${fmtN(r.outstanding)}</b>`, text: r => r.outstanding },
+      { key: 'urgent', label: 'Urgent', sort: r => +r.l.urgent, html: r => r.l.urgent ? '<span class="pill red">Urgent</span>' : '', text: r => r.l.urgent ? 'Urgent' : '' },
+      { key: 'age', label: 'Age (days)', num: true, text: r => r.age ?? '' },
+      { key: 'expected', label: 'Expected', html: r => `<span class="nowrap ${r.late ? 'late' : ''}">${fmtD(r.expected)}</span>`, text: r => r.expected || '' },
+    ], rows, { href: r => '#/orders/' + r.l.order_id, name: 'Outstanding by PO line', empty: 'Nothing outstanding.' });
+  }
+  return { title: 'Outstanding', sub: 'Everything still owed, old and new part numbers combined', tools, html: stats + html };
+};
+
+VIEWS.orders = r => {
+  if (r.id) return orderDetail(r.id);
+  const q = lc(ui.q);
+  let rows = db.orders.map(o => ({ o, ...D.O.get(o.id) }));
+  if (ui.orderFilter === 'open') rows = rows.filter(r => !['Fully shipped', 'Closed'].includes(r.status));
+  if (q) rows = rows.filter(r => [r.o.title, r.o.po_number, r.o.client, r.o.quote_ref, r.o.notes].some(v => lc(v).includes(q)) || (D.linesByOrder.get(r.o.id) || []).some(l => matchesPart(l.part_id, q)));
+  rows.sort((a, b) => String(b.o.po_date || b.o.created_at).localeCompare(String(a.o.po_date || a.o.created_at)));
+  const tools = `<button class="btn primary" data-act="newOrder">${ICON.plus}New order</button>
+    <div class="seg"><button data-act="orderFilter" data-v="open" aria-pressed="${ui.orderFilter === 'open'}">Open</button><button data-act="orderFilter" data-v="all" aria-pressed="${ui.orderFilter === 'all'}">All</button></div>`;
+  const html = table('orders', [
+    { key: 'po', label: 'PO', sort: r => r.o.po_number, html: r => `<span class="pn">${esc(r.o.po_number || '–')}</span>`, text: r => r.o.po_number },
+    { key: 'title', label: 'Order', sort: r => r.o.title, html: r => `${esc(r.o.title)}${r.urgent ? ' <span class="pill red">Urgent</span>' : ''}`, text: r => r.o.title },
+    { key: 'date', label: 'PO date', sort: r => r.o.po_date, html: r => `<span class="nowrap">${fmtD(r.o.po_date)}</span>`, text: r => r.o.po_date || '' },
+    { key: 'status', label: 'Status', html: r => statusPill(r.status), text: r => r.status },
+    { key: 'lines', label: 'Lines', num: true },
+    { key: 'outstanding', label: 'Outstanding', num: true, html: r => fmtN(r.outstanding), text: r => r.outstanding },
+    { key: 'pct', label: 'Shipped', sort: r => r.pct, nosort: false, html: r => `<div class="bar" title="${Math.round(r.pct * 100)}%"><i style="width:${Math.round(r.pct * 100)}%"></i></div>`, text: r => Math.round(r.pct * 100) + '%' },
+    { key: 'openIssues', label: 'Problems', num: true, html: r => r.openIssues ? `<span class="flag">${r.openIssues}</span>` : '', text: r => r.openIssues || '' },
+  ], rows, { href: r => '#/orders/' + r.o.id, name: 'Orders', empty: ui.orderFilter === 'open' ? 'No open orders. Switch to "All" to see finished ones.' : 'No orders yet.' });
+  return { title: 'Orders', sub: `${rows.length} shown`, tools, html };
+};
+
+function orderDetail(id) {
+  const o = D.order.get(id);
+  if (!o) return { title: 'Order not found', html: '<div class="empty">This order no longer exists. <a href="#/orders">Back to orders</a></div>' };
+  const st = D.O.get(id);
+  const lines = D.linesByOrder.get(id) || [];
+  const dels = (D.deliveriesByOrder.get(id) || []).sort((a, b) => String(a.ship_date).localeCompare(String(b.ship_date)));
+  const invs = D.invoicesByOrder.get(id) || [];
+  const docs = D.docsByOrder.get(id) || [];
+  const issues = dels.flatMap(d => D.issuesByDelivery.get(d.id) || []);
+  const f = (k, v) => `<div class="f"><div class="k">${k}</div><div class="v">${v || '–'}</div></div>`;
+  const header = `<div class="card"><h2>${statusPill(st.status)} <span>${esc(o.title)}</span><span class="spacer"></span>
+      <button class="btn small" data-act="editOrder" data-id="${id}">${ICON.edit}Edit</button>
+      <button class="iconbtn danger" title="Delete order" data-act="deleteOrder" data-id="${id}">${ICON.trash}</button></h2>
+    <div class="fields">${f('PO number', esc(o.po_number))}${f('PO date', fmtD(o.po_date))}${f('Client', esc(o.client))}${f('Quote', esc(o.quote_ref))}${f('Quote sent', fmtD(o.quote_sent))}${f('Expected', fmtD(o.expected_date))}${f('Ordered', fmtN(st.ordered))}${f('Outstanding', `<b>${fmtN(st.outstanding)}</b>`)}</div>
+    ${o.closed ? '<div class="warnbox" style="margin-top:12px">Closed: anything not yet shipped is no longer counted as outstanding.</div>' : ''}
+    ${o.notes ? `<div class="notes">${esc(o.notes)}</div>` : ''}</div>`;
+  const lineRows = lines.map(l => {
+    const c = D.L.get(l.id);
+    const e = (field, type, extra = '') => `<input type="${type}" data-edit="order_lines:${l.id}:${field}" value="${esc(l[field] ?? '')}" ${extra}>`;
+    return `<tr class="${l.cancelled ? 'muted' : ''}">
+      <td>${partCell(l.part_id)} <button class="iconbtn" title="Change part" data-act="changeLinePart" data-id="${l.id}">${ICON.swap}</button><div class="small">${esc(partDesc(l.part_id))}</div></td>
+      <td>${e('ordered_as', 'text', 'style="max-width:110px"')}</td>
+      <td class="num">${e('qty', 'number', 'min="0" step="any"')}</td>
+      <td class="num">${e('shipped_before', 'number', 'min="0" step="any" title="Shipped before tracking began"')}</td>
+      <td class="num">${fmtN(c.delivered)}</td>
+      <td class="num"><b>${fmtN(c.outstanding)}</b>${c.openIssues ? ` <span class="flag" title="Open delivery problem">!</span>` : ''}</td>
+      <td><input type="checkbox" data-edit="order_lines:${l.id}:urgent" ${l.urgent ? 'checked' : ''} aria-label="Urgent"></td>
+      <td class="${c.late ? 'late' : ''}">${e('expected_date', 'date')}</td>
+      <td class="num">${e('unit_price', 'number', 'min="0" step="any" placeholder="–"')}</td>
+      <td><input type="checkbox" data-edit="order_lines:${l.id}:cancelled" ${l.cancelled ? 'checked' : ''} aria-label="Cancelled"></td>
+      <td>${e('notes', 'text', 'placeholder="…" style="min-width:140px"')}</td>
+      <td><button class="iconbtn danger" title="Delete line" data-act="deleteLine" data-id="${l.id}">${ICON.trash}</button></td></tr>`;
+  }).join('');
+  exportable = {
+    name: (o.po_number || o.title) + ' lines', cols: [
+      { label: 'Part', text: l => mainNo(l.part_id) }, { label: 'Other numbers', text: l => otherNos(l.part_id).join(' / ') }, { label: 'Description', text: l => partDesc(l.part_id) },
+      { label: 'Ordered as', text: l => l.ordered_as }, { label: 'Ordered', text: l => l.qty }, { label: 'Shipped before tracking', text: l => l.shipped_before },
+      { label: 'Delivered', text: l => D.L.get(l.id).delivered }, { label: 'Outstanding', text: l => D.L.get(l.id).outstanding }, { label: 'Urgent', text: l => l.urgent ? 'Urgent' : '' },
+      { label: 'Expected', text: l => l.expected_date || '' }, { label: 'Unit price', text: l => l.unit_price ?? '' }, { label: 'Cancelled', text: l => l.cancelled ? 'Yes' : '' }, { label: 'Notes', text: l => l.notes || '' }],
+    rows: lines,
+  };
+  const linesHtml = `<div class="section-title"><h2>Lines</h2><span class="small">${lines.length} · edit any cell, it saves when you leave it</span><span class="spacer"></span>
+      <button class="btn small" data-act="pasteLines" data-id="${id}">Paste lines</button><button class="btn small primary" data-act="addLine" data-id="${id}">${ICON.plus}Add line</button></div>
+    ${lines.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th style="min-width:240px">Part</th><th>Ordered as</th><th class="num">Ordered</th><th class="num" title="Shipped before tracking began">Shipped before</th><th class="num">Delivered</th><th class="num">Outstanding</th><th>Urgent</th><th>Expected</th><th class="num">Unit price</th><th>Cancelled</th><th>Notes</th><th></th></tr></thead><tbody>${lineRows}</tbody>
+      <tfoot><tr><td colspan="2">Total</td><td class="num">${fmtN(st.ordered)}</td><td></td><td></td><td class="num">${fmtN(st.outstanding)}</td><td colspan="6"></td></tr></tfoot></table></div>` : '<div class="tbl-wrap"><div class="empty">No lines yet. Add them one by one, or paste a list.</div></div>'}`;
+  const delHtml = `<div class="section-title"><h2>Deliveries</h2><span class="spacer"></span><button class="btn small primary" data-act="newDelivery" data-order="${id}">${ICON.plus}Record delivery</button></div>` +
+    (dels.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Delivery note</th><th>Shipped</th><th>Received</th><th class="num">Units</th><th>Tracking</th><th>Problems</th></tr></thead><tbody>${dels.map(d => {
+      const n = (D.issuesByDelivery.get(d.id) || []).filter(i => i.status !== 'Resolved').length;
+      return `<tr class="click" data-go="#/deliveries/${d.id}"><td class="pn">${esc(d.dn_number)}</td><td class="nowrap">${fmtD(d.ship_date)}</td><td class="nowrap">${fmtD(d.received_date)}</td><td class="num">${fmtN(sum(D.dlByDelivery.get(d.id) || [], x => x.qty))}</td><td>${esc(d.tracking)}</td><td>${n ? `<span class="flag">${n} open</span>` : ''}</td></tr>`;
+    }).join('')}</tbody></table></div>` : '<div class="tbl-wrap"><div class="empty">Nothing delivered against this order yet.</div></div>');
+  const issHtml = issues.length ? `<div class="section-title"><h2>Problems</h2></div>${issuesTable(issues, false)}` : '';
+  const invHtml = `<div class="section-title"><h2>Invoices</h2><span class="spacer"></span><button class="btn small" data-act="newInvoice" data-order="${id}">${ICON.plus}Add invoice</button></div>` +
+    (invs.length ? invoicesTable(invs, false) : '<div class="tbl-wrap"><div class="empty">No invoices yet.</div></div>');
+  const docHtml = `<div class="section-title"><h2>Documents</h2><span class="spacer"></span><button class="btn small" data-act="newDoc" data-order="${id}">${ICON.plus}Add link</button></div>` + docsTable(docs, false);
+  return { title: o.po_number || o.title, sub: `<a href="#/orders">Orders</a> › ${esc(o.title)}`, html: header + linesHtml + delHtml + issHtml + invHtml + docHtml };
+}
+
+VIEWS.deliveries = r => {
+  if (r.id) return deliveryDetail(r.id);
+  const q = lc(ui.q);
+  let rows = db.deliveries.map(d => ({ d, o: D.order.get(d.order_id) || {}, units: sum(D.dlByDelivery.get(d.id) || [], x => x.qty), lines: (D.dlByDelivery.get(d.id) || []).length, open: (D.issuesByDelivery.get(d.id) || []).filter(i => i.status !== 'Resolved').length }));
+  if (q) rows = rows.filter(r => [r.d.dn_number, r.d.tracking, r.d.notes, r.o.po_number, r.o.title].some(v => lc(v).includes(q)) || (D.dlByDelivery.get(r.d.id) || []).some(x => matchesPart(x.part_id, q) || lc(x.shipped_as).includes(q)));
+  rows.sort((a, b) => String(b.d.ship_date || b.d.created_at).localeCompare(String(a.d.ship_date || a.d.created_at)));
+  const html = table('deliveries', [
+    { key: 'dn', label: 'Delivery note', sort: r => r.d.dn_number, html: r => `<span class="pn">${esc(r.d.dn_number)}</span>`, text: r => r.d.dn_number },
+    { key: 'po', label: 'PO', sort: r => r.o.po_number, text: r => r.o.po_number || '' },
+    { key: 'order', label: 'Order', sort: r => r.o.title, text: r => r.o.title || '' },
+    { key: 'ship', label: 'Shipped', sort: r => r.d.ship_date, html: r => `<span class="nowrap">${fmtD(r.d.ship_date)}</span>`, text: r => r.d.ship_date || '' },
+    { key: 'recv', label: 'Received', sort: r => r.d.received_date, html: r => `<span class="nowrap">${fmtD(r.d.received_date)}</span>`, text: r => r.d.received_date || '' },
+    { key: 'lines', label: 'Lines', num: true },
+    { key: 'units', label: 'Units', num: true, text: r => fmtN(r.units) },
+    { key: 'tracking', label: 'Tracking', sort: r => r.d.tracking, text: r => r.d.tracking || '' },
+    { key: 'open', label: 'Problems', num: true, html: r => r.open ? `<span class="flag">${r.open} open</span>` : '', text: r => r.open || '' },
+  ], rows, { href: r => '#/deliveries/' + r.d.id, name: 'Deliveries', empty: 'No deliveries recorded yet.' });
+  return { title: 'Deliveries', sub: 'Delivery notes received', tools: `<button class="btn primary" data-act="newDelivery">${ICON.plus}Record delivery</button>`, html };
+};
+
+function deliveryDetail(id) {
+  const d = D.delivery.get(id);
+  if (!d) return { title: 'Delivery not found', html: '<div class="empty">This delivery no longer exists. <a href="#/deliveries">Back</a></div>' };
+  const o = D.order.get(d.order_id);
+  const dls = D.dlByDelivery.get(id) || [];
+  const issues = D.issuesByDelivery.get(id) || [];
+  const f = (k, v) => `<div class="f"><div class="k">${k}</div><div class="v">${v || '–'}</div></div>`;
+  const header = `<div class="card"><h2><span>${esc(d.dn_number)}</span><span class="spacer"></span>
+      <button class="btn small" data-act="editDelivery" data-id="${id}">${ICON.edit}Edit</button>
+      <button class="iconbtn danger" title="Delete delivery" data-act="deleteDelivery" data-id="${id}">${ICON.trash}</button></h2>
+    <div class="fields">${f('Order', o ? `<a href="#/orders/${o.id}">${esc(o.po_number || '')} ${esc(o.title)}</a>` : '<span class="flag">Not linked to an order</span>')}${f('Shipped', fmtD(d.ship_date))}${f('Received', fmtD(d.received_date))}${f('Tracking', esc(d.tracking))}${f('Units received', fmtN(sum(dls, x => x.qty)))}</div>
+    ${d.notes ? `<div class="notes">${esc(d.notes)}</div>` : ''}</div>`;
+  const itemRows = dls.map(x => {
+    const l = D.line.get(x.order_line_id);
+    const nums = D.numbers.get(x.part_id) || [];
+    return `<tr><td>${partCell(x.part_id)}<div class="small">${esc(partDesc(x.part_id))}</div></td>
+      <td><select data-edit="delivery_lines:${x.id}:shipped_as">${nums.map(n => `<option ${lc(n.number) === lc(x.shipped_as) ? 'selected' : ''}>${esc(n.number)}</option>`).join('')}${x.shipped_as && !nums.some(n => lc(n.number) === lc(x.shipped_as)) ? `<option selected>${esc(x.shipped_as)}</option>` : ''}</select></td>
+      <td class="num"><input type="number" min="0" step="any" data-edit="delivery_lines:${x.id}:qty" value="${esc(x.qty)}"></td>
+      <td>${l ? `${esc(orderName(l.order_id))} · ordered ${fmtN(l.qty)} as ${esc(l.ordered_as || mainNo(l.part_id))}` : '<span class="small">Not matched to an order line</span>'}</td>
+      <td><input type="text" data-edit="delivery_lines:${x.id}:notes" value="${esc(x.notes || '')}" placeholder="…"></td>
+      <td><button class="iconbtn danger" title="Remove from delivery" data-act="deleteDLine" data-id="${x.id}">${ICON.trash}</button></td></tr>`;
+  }).join('');
+  exportable = { name: d.dn_number, cols: [{ label: 'Part', text: x => mainNo(x.part_id) }, { label: 'Description', text: x => partDesc(x.part_id) }, { label: 'Shipped as', text: x => x.shipped_as }, { label: 'Qty received', text: x => x.qty }, { label: 'PO', text: x => orderName((D.line.get(x.order_line_id) || {}).order_id) }, { label: 'Notes', text: x => x.notes || '' }], rows: dls };
+  const items = `<div class="section-title"><h2>Items received</h2><span class="small">Good quantity only. Record short, wrong or damaged items as problems below.</span></div>` +
+    (dls.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th style="min-width:240px">Part</th><th>Shipped as</th><th class="num">Qty</th><th>Against</th><th>Notes</th><th></th></tr></thead><tbody>${itemRows}</tbody></table></div>` : '<div class="tbl-wrap"><div class="empty">No items yet. Tick them off from the order below.</div></div>');
+  let add = '';
+  if (o) {
+    const open = (D.linesByOrder.get(o.id) || []).filter(l => D.L.get(l.id).outstanding > 0);
+    add = `<div class="section-title"><h2>Add items from ${esc(o.po_number || o.title)}</h2><span class="spacer"></span>${open.length ? `<button class="btn small" data-act="fillAll">Fill all outstanding</button><button class="btn small primary" data-act="addDLines" data-id="${id}">${ICON.plus}Add to delivery</button>` : ''}</div>` +
+      (open.length ? `<div class="tbl-wrap"><table class="tbl" id="receiveTbl"><thead><tr><th style="min-width:240px">Part</th><th>Ordered as</th><th class="num">Outstanding</th><th class="num">Received now</th><th>Shipped as</th></tr></thead><tbody>${open.map(l => {
+        const nums = D.numbers.get(l.part_id) || [];
+        const def = nums.find(n => n.is_main)?.number || l.ordered_as;
+        return `<tr data-line="${l.id}"><td>${partCell(l.part_id)}${l.urgent ? ' <span class="pill red">Urgent</span>' : ''}<div class="small">${esc(partDesc(l.part_id))}</div></td><td>${esc(l.ordered_as)}</td><td class="num">${fmtN(D.L.get(l.id).outstanding)}</td>
+          <td class="num"><input type="number" min="0" step="any" class="rq" data-max="${D.L.get(l.id).outstanding}" placeholder="0"></td>
+          <td><select class="ras">${nums.map(n => `<option ${n.number === def ? 'selected' : ''}>${esc(n.number)}</option>`).join('')}</select></td></tr>`;
+      }).join('')}</tbody></table></div>` : '<div class="tbl-wrap"><div class="empty">Everything on this order has been received.</div></div>');
+  } else add = '<div class="warnbox" style="margin-top:16px">Link this delivery to an order (Edit) to tick off items against it.</div>';
+  const iss = `<div class="section-title"><h2>Problems</h2><span class="spacer"></span><button class="btn small" data-act="newIssue" data-delivery="${id}">${ICON.plus}Report problem</button></div>` + (issues.length ? issuesTable(issues, false) : '<div class="tbl-wrap"><div class="empty">No problems reported.</div></div>');
+  const docs = `<div class="section-title"><h2>Documents</h2><span class="spacer"></span><button class="btn small" data-act="newDoc" data-delivery="${id}" data-order="${d.order_id || ''}">${ICON.plus}Add link</button></div>` + docsTable(D.docsByDelivery.get(id) || [], false);
+  return { title: d.dn_number, sub: `<a href="#/deliveries">Deliveries</a> › ${esc(d.dn_number)}`, html: header + items + add + iss + docs };
+}
+
+function issuesTable(rows, withExport = true) {
+  return table('issues' + (withExport ? '' : '-sub'), [
+    { key: 'status', label: 'Status', html: x => `<select data-edit="issues:${x.id}:status">${['Open', 'Replacement requested', 'Resolved'].map(s => `<option ${s === x.status ? 'selected' : ''}>${s}</option>`).join('')}</select>`, text: x => x.status },
+    { key: 'kind', label: 'Type', text: x => x.kind },
+    { key: 'dn', label: 'Delivery', sort: x => (D.delivery.get(x.delivery_id) || {}).dn_number, html: x => x.delivery_id ? `<a href="#/deliveries/${x.delivery_id}">${esc((D.delivery.get(x.delivery_id) || {}).dn_number)}</a>` : '', text: x => (D.delivery.get(x.delivery_id) || {}).dn_number || '' },
+    { key: 'po', label: 'PO', sort: x => orderName((D.line.get(x.order_line_id) || D.delivery.get(x.delivery_id) || {}).order_id), text: x => orderName((D.line.get(x.order_line_id) || D.delivery.get(x.delivery_id) || {}).order_id) },
+    { key: 'part', label: 'Part', html: x => { const l = D.line.get(x.order_line_id); return l ? partCell(l.part_id) : '–'; }, text: x => { const l = D.line.get(x.order_line_id); return l ? mainNo(l.part_id) : ''; } },
+    { key: 'qty', label: 'Qty', num: true, text: x => fmtN(x.qty) },
+    { key: 'description', label: 'What happened', cls: 'desc', text: x => x.description || '' },
+    { key: 'resolved_date', label: 'Resolved', html: x => `<span class="nowrap">${fmtD(x.resolved_date)}</span>`, text: x => x.resolved_date || '' },
+    { key: 'a', label: '', nosort: true, html: x => `<button class="iconbtn" title="Edit" data-act="editIssue" data-id="${x.id}">${ICON.edit}</button><button class="iconbtn danger" title="Delete" data-act="deleteIssue" data-id="${x.id}">${ICON.trash}</button>`, text: () => '' },
+  ], rows, { export: withExport, name: 'Delivery problems', empty: 'No problems recorded.' });
+}
+
+VIEWS.issues = () => {
+  const q = lc(ui.q);
+  let rows = [...db.issues];
+  if (ui.issueFilter === 'open') rows = rows.filter(i => i.status !== 'Resolved');
+  if (q) rows = rows.filter(i => [i.description, i.kind, (D.delivery.get(i.delivery_id) || {}).dn_number].some(v => lc(v).includes(q)) || (D.line.get(i.order_line_id) && matchesPart(D.line.get(i.order_line_id).part_id, q)));
+  rows.sort((a, b) => (a.status === 'Resolved') - (b.status === 'Resolved') || b.created_at.localeCompare(a.created_at));
+  const tools = `<button class="btn primary" data-act="newIssue">${ICON.plus}Report problem</button><div class="seg"><button data-act="issueFilter" data-v="open" aria-pressed="${ui.issueFilter === 'open'}">Not resolved</button><button data-act="issueFilter" data-v="all" aria-pressed="${ui.issueFilter === 'all'}">All</button></div>`;
+  return { title: 'Problems', sub: 'Short, wrong or damaged items on deliveries', tools, html: issuesTable(rows) };
+};
+
+function invoiceChecks(inv) {
+  const flags = [];
+  const d = D.delivery.get(inv.delivery_id);
+  if (!d) flags.push(['amber', 'No delivery note']);
+  else {
+    if (inv.order_id && d.order_id && d.order_id !== inv.order_id) flags.push(['red', 'Delivery is for another PO']);
+    if ((D.issuesByDelivery.get(d.id) || []).some(i => i.status !== 'Resolved')) flags.push(['red', 'Delivery has open problems']);
+    const dls = D.dlByDelivery.get(d.id) || [];
+    const priced = dls.filter(x => D.line.get(x.order_line_id)?.unit_price != null);
+    if (priced.length && priced.length === dls.length && inv.amount != null) {
+      const value = sum(priced, x => x.qty * D.line.get(x.order_line_id).unit_price);
+      if (+inv.amount > value + 0.005) flags.push(['red', `More than delivered value (${money(value)})`]);
+    }
+  }
+  if (!flags.length && d) flags.push(['green', 'Matches']);
+  return flags;
+}
+function invoicesTable(rows, withExport = true) {
+  return table('invoices' + (withExport ? '' : '-sub'), [
+    { key: 'invoice_no', label: 'Invoice', html: x => `<span class="pn">${esc(x.invoice_no)}</span>`, text: x => x.invoice_no },
+    { key: 'invoice_date', label: 'Date', html: x => `<span class="nowrap">${fmtD(x.invoice_date)}</span>`, text: x => x.invoice_date || '' },
+    { key: 'po', label: 'PO', sort: x => orderName(x.order_id), html: x => x.order_id ? `<a href="#/orders/${x.order_id}">${esc(orderName(x.order_id))}</a>` : '', text: x => orderName(x.order_id) },
+    { key: 'dn', label: 'Delivery note', sort: x => (D.delivery.get(x.delivery_id) || {}).dn_number, html: x => x.delivery_id ? `<a href="#/deliveries/${x.delivery_id}">${esc((D.delivery.get(x.delivery_id) || {}).dn_number)}</a>` : '', text: x => (D.delivery.get(x.delivery_id) || {}).dn_number || '' },
+    { key: 'amount', label: 'Amount', num: true, sort: x => +x.amount, text: x => money(x.amount, x.currency) },
+    { key: 'paid', label: 'Paid', html: x => `<input type="checkbox" data-edit="invoices:${x.id}:paid" ${x.paid ? 'checked' : ''} aria-label="Paid">`, text: x => x.paid ? 'Yes' : '' },
+    { key: 'check', label: 'Check', nosort: true, html: x => invoiceChecks(x).map(([c, t]) => `<span class="pill ${c}">${esc(t)}</span>`).join(' '), text: x => invoiceChecks(x).map(f => f[1]).join('; ') },
+    { key: 'notes', label: 'Notes', text: x => x.notes || '' },
+    { key: 'a', label: '', nosort: true, html: x => `<button class="iconbtn" title="Edit" data-act="editInvoice" data-id="${x.id}">${ICON.edit}</button><button class="iconbtn danger" title="Delete" data-act="deleteInvoice" data-id="${x.id}">${ICON.trash}</button>`, text: () => '' },
+  ], rows, { export: withExport, name: 'Invoices', empty: 'No invoices yet.' });
+}
+VIEWS.invoices = () => {
+  const q = lc(ui.q);
+  let rows = db.invoices.filter(x => !q || [x.invoice_no, x.notes, orderName(x.order_id), (D.delivery.get(x.delivery_id) || {}).dn_number].some(v => lc(v).includes(q)));
+  rows.sort((a, b) => String(b.invoice_date || b.created_at).localeCompare(String(a.invoice_date || a.created_at)));
+  return { title: 'Invoices', sub: 'Checked against the PO and the delivery note', tools: `<button class="btn primary" data-act="newInvoice">${ICON.plus}Add invoice</button>`, html: invoicesTable(rows) };
+};
+
+VIEWS.parts = r => {
+  if (r.id) return partDetail(r.id);
+  const q = lc(ui.q);
+  let rows = db.parts.filter(p => (ui.showArchived || !p.archived) && matchesPart(p.id, q)).map(p => {
+    const ls = D.linesByPart.get(p.id) || [];
+    return { p, number: mainNo(p.id), others: otherNos(p.id).join(' / '), outstanding: sum(ls, l => D.L.get(l.id).outstanding), orders: new Set(ls.map(l => l.order_id)).size };
+  });
+  rows.sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }));
+  const tools = `<button class="btn primary" data-act="newPart">${ICON.plus}New part</button><div class="seg"><button data-act="showArchived" data-v="0" aria-pressed="${!ui.showArchived}">Active</button><button data-act="showArchived" data-v="1" aria-pressed="${ui.showArchived}">Include archived</button></div>`;
+  const html = table('parts', [
+    { key: 'number', label: 'Main number', html: r => `<span class="pn">${esc(r.number)}</span>`, text: r => r.number },
+    { key: 'others', label: 'Also known as', html: r => `<span class="alias">${esc(r.others)}</span>`, text: r => r.others },
+    { key: 'desc', label: 'Description', sort: r => r.p.description, html: r => `${esc(r.p.description)}${r.p.archived ? ' <span class="pill">Archived</span>' : ''}`, text: r => r.p.description },
+    { key: 'orders', label: 'Orders', num: true, text: r => r.orders || '' },
+    { key: 'outstanding', label: 'Outstanding', num: true, text: r => r.outstanding ? fmtN(r.outstanding) : '' },
+  ], rows, { href: r => '#/parts/' + r.p.id, name: 'Parts', empty: q ? 'No part matches. Use "New part" to add it.' : 'No parts yet.' });
+  return { title: 'Parts', sub: `${rows.length} parts`, tools, html };
+};
+
+function partDetail(id) {
+  const p = D.part.get(id);
+  if (!p) return { title: 'Part not found', html: '<div class="empty">This part no longer exists (deleted or merged). <a href="#/parts">Back to parts</a></div>' };
+  const nums = D.numbers.get(id) || [];
+  const ls = (D.linesByPart.get(id) || []).map(l => ({ l, o: D.order.get(l.order_id) || {}, ...D.L.get(l.id) })).sort((a, b) => String(b.o.po_date).localeCompare(String(a.o.po_date)));
+  const header = `<div class="card"><h2><span>${esc(p.description)}</span>${p.archived ? '<span class="pill">Archived</span>' : ''}<span class="spacer"></span>
+      <button class="btn small" data-act="editPart" data-id="${id}">${ICON.edit}Edit</button>
+      <button class="btn small" data-act="mergePart" data-id="${id}">Merge another part into this…</button>
+      <button class="btn small" data-act="archivePart" data-id="${id}">${p.archived ? 'Unarchive' : 'Archive'}</button>
+      <button class="iconbtn danger" title="Delete part" data-act="deletePart" data-id="${id}">${ICON.trash}</button></h2>
+    ${p.notes ? `<div class="notes">${esc(p.notes)}</div>` : ''}</div>`;
+  const numsHtml = `<div class="section-title"><h2>Part numbers</h2><span class="small">Search, orders and deliveries accept any of these</span></div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Number</th><th>Label</th><th></th><th></th></tr></thead><tbody>${nums.map(n => `<tr>
+      <td><input type="text" data-edit="part_numbers:${n.id}:number" value="${esc(n.number)}" style="font-weight:600;max-width:200px"></td>
+      <td><select data-edit="part_numbers:${n.id}:label">${['', 'new', 'old', 'client', 'supplier'].map(v => `<option value="${v}" ${(n.label || '') === v ? 'selected' : ''}>${v || '—'}</option>`).join('')}</select></td>
+      <td>${n.is_main ? '<span class="pill blue">Main number</span>' : `<button class="btn small" data-act="makeMain" data-id="${n.id}">Make main</button>`}</td>
+      <td>${nums.length > 1 ? `<button class="iconbtn danger" title="Remove this number" data-act="deleteNumber" data-id="${n.id}">${ICON.trash}</button>` : ''}</td></tr>`).join('')}
+      <tr><td><input type="text" id="newNum" placeholder="Add another number…" style="max-width:200px"></td><td><select id="newNumLabel"><option value="">—</option><option>new</option><option>old</option><option>client</option><option>supplier</option></select></td><td><button class="btn small" data-act="addNumber" data-id="${id}">${ICON.plus}Add</button></td><td></td></tr>
+    </tbody></table></div>`;
+  const ordersHtml = `<div class="section-title"><h2>On orders</h2></div>` + table('partLines', [
+    { key: 'po', label: 'PO', sort: r => r.o.po_number, text: r => r.o.po_number || '' },
+    { key: 'title', label: 'Order', sort: r => r.o.title, text: r => r.o.title },
+    { key: 'date', label: 'PO date', sort: r => r.o.po_date, html: r => `<span class="nowrap">${fmtD(r.o.po_date)}</span>`, text: r => r.o.po_date || '' },
+    { key: 'as', label: 'Ordered as', sort: r => r.l.ordered_as, text: r => r.l.ordered_as || '' },
+    { key: 'qty', label: 'Ordered', num: true, sort: r => +r.l.qty, text: r => fmtN(r.l.qty) },
+    { key: 'shipped', label: 'Shipped', num: true, text: r => fmtN(r.shipped) },
+    { key: 'outstanding', label: 'Outstanding', num: true, html: r => `<b>${fmtN(r.outstanding)}</b>`, text: r => r.outstanding },
+    { key: 'urgent', label: 'Urgent', sort: r => +r.l.urgent, html: r => r.l.urgent ? '<span class="pill red">Urgent</span>' : '', text: r => r.l.urgent ? 'Urgent' : '' },
+  ], ls, { href: r => '#/orders/' + r.l.order_id, name: mainNo(id) + ' orders', empty: 'Not on any order.' });
+  return { title: mainNo(id), sub: `<a href="#/parts">Parts</a> › ${esc(p.description)}`, html: header + numsHtml + ordersHtml };
+}
+
+function docsTable(rows, withExport = true) {
+  return table('docs' + (withExport ? '' : '-sub'), [
+    { key: 'name', label: 'Name', html: x => x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener" data-stop>${ICON.link} ${esc(x.name)}</a>` : esc(x.name), text: x => x.name },
+    { key: 'doc_type', label: 'Type', html: x => `<span class="pill">${esc(x.doc_type)}</span>`, text: x => x.doc_type },
+    { key: 'order', label: 'Order', sort: x => orderName(x.order_id), html: x => x.order_id ? `<a href="#/orders/${x.order_id}">${esc(orderName(x.order_id))}</a>` : '', text: x => orderName(x.order_id) },
+    { key: 'dn', label: 'Delivery', sort: x => (D.delivery.get(x.delivery_id) || {}).dn_number, html: x => x.delivery_id ? `<a href="#/deliveries/${x.delivery_id}">${esc((D.delivery.get(x.delivery_id) || {}).dn_number)}</a>` : '', text: x => (D.delivery.get(x.delivery_id) || {}).dn_number || '' },
+    { key: 'a', label: '', nosort: true, html: x => `<button class="iconbtn" title="Edit" data-act="editDoc" data-id="${x.id}">${ICON.edit}</button><button class="iconbtn danger" title="Delete link" data-act="deleteDoc" data-id="${x.id}">${ICON.trash}</button>`, text: () => '' },
+  ], rows, { export: withExport, name: 'Documents', empty: 'No documents linked.' });
+}
+VIEWS.documents = () => {
+  const q = lc(ui.q);
+  const rows = db.documents.filter(x => !q || [x.name, x.doc_type, orderName(x.order_id)].some(v => lc(v).includes(q))).sort((a, b) => a.name.localeCompare(b.name));
+  return { title: 'Documents', sub: 'Links to files kept in SharePoint / OneDrive', tools: `<button class="btn primary" data-act="newDoc">${ICON.plus}Add link</button>`, html: docsTable(rows) };
+};
+
+let historyCache = null;
+VIEWS.history = () => {
+  if (!historyCache) {
+    Promise.resolve(sb.from('history').select('*').order('at', { ascending: false }).limit(300)).then(({ data, error }) => { historyCache = error ? { error } : data; render(); });
+    return { title: 'History', html: '<div class="empty">Loading…</div>' };
+  }
+  if (historyCache.error) return { title: 'History', html: `<div class="empty">${esc(friendlyError(historyCache.error))}</div>` };
+  const NAMES = { parts: 'Part', part_numbers: 'Part number', orders: 'Order', order_lines: 'Order line', deliveries: 'Delivery', delivery_lines: 'Delivery item', issues: 'Problem', invoices: 'Invoice', documents: 'Document' };
+  const label = h => { const r = h.new || h.old || {}; return r.po_number || r.title || r.dn_number || r.invoice_no || r.number || r.name || r.description || (r.part_id ? mainNo(r.part_id) : '') || ''; };
+  const changes = h => h.action !== 'update' ? '' : Object.keys(h.new).filter(k => !['updated_at'].includes(k) && JSON.stringify(h.new[k]) !== JSON.stringify(h.old[k])).map(k => `${k.replace(/_/g, ' ')}: ${h.old[k] ?? '–'} → ${h.new[k] ?? '–'}`).join('; ');
+  const q = lc(ui.q);
+  const rows = historyCache.filter(h => !q || lc(label(h) + ' ' + changes(h) + ' ' + h.tbl).includes(q));
+  const html = table('history', [
+    { key: 'at', label: 'When', html: h => `<span class="nowrap">${fmtD(h.at)} ${esc(new Date(h.at).toTimeString().slice(0, 5))}</span>`, text: h => h.at },
+    { key: 'tbl', label: 'What', text: h => NAMES[h.tbl] || h.tbl },
+    { key: 'action', label: 'Change', html: h => `<span class="pill ${h.action === 'delete' ? 'red' : h.action === 'insert' ? 'green' : ''}">${h.action === 'insert' ? 'added' : h.action === 'delete' ? 'deleted' : 'edited'}</span>`, text: h => h.action },
+    { key: 'label', label: 'Item', sort: label, text: label },
+    { key: 'changes', label: 'Details', sort: changes, cls: 'small', text: changes },
+    { key: 'who', label: 'By', text: h => h.who || '' },
+  ], rows, { name: 'History', empty: 'No changes recorded yet.' });
+  return { title: 'History', sub: 'The last 300 changes', tools: `<button class="btn small" data-act="refreshHistory">Refresh</button>`, html };
+};
+
+// ───────────────────────── sheets (forms) ─────────────────────────
+function openSheet({ title, body, foot, wide, onMount }) {
+  const bg = $('#sheet');
+  bg.innerHTML = `<div class="sheet ${wide ? 'wide' : ''}" role="dialog" aria-modal="true" aria-label="${esc(title)}"><div class="sheet-head"><h2>${esc(title)}</h2><button class="iconbtn" data-close aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="sheet-body">${body}</div>${foot ? `<div class="sheet-foot">${foot}</div>` : ''}</div>`;
+  bg.hidden = false;
+  bg.onclick = e => { if (e.target === bg || e.target.closest('[data-close]')) closeSheet(); };
+  if (onMount) onMount(bg.firstElementChild);
+  const first = bg.querySelector('[autofocus], input:not([type=hidden]), select, textarea');
+  if (first) setTimeout(() => first.focus(), 30);
+}
+function closeSheet() { const bg = $('#sheet'); bg.hidden = true; bg.innerHTML = ''; }
+
+// fields: [{k, label, type, options, full, required, placeholder}]
+function formSheet({ title, intro, fields, values = {}, saveLabel = 'Save', onSave, wide }) {
+  const input = f => {
+    const v = values[f.k] ?? f.default ?? '';
+    if (f.type === 'textarea') return `<textarea name="${f.k}" placeholder="${esc(f.placeholder || '')}">${esc(v)}</textarea>`;
+    if (f.type === 'select') return `<select name="${f.k}">${f.options.map(o => { const [val, lab] = Array.isArray(o) ? o : [o, o]; return `<option value="${esc(val)}" ${String(val) === String(v) ? 'selected' : ''}>${esc(lab)}</option>`; }).join('')}</select>`;
+    if (f.type === 'check') return `<input type="checkbox" name="${f.k}" ${v ? 'checked' : ''}>`;
+    return `<input name="${f.k}" type="${f.type || 'text'}" value="${esc(v)}" placeholder="${esc(f.placeholder || '')}" ${f.type === 'number' ? 'step="any"' : ''} ${f.list ? `list="${f.k}-list"` : ''}>${f.list ? `<datalist id="${f.k}-list">${f.list.map(x => `<option value="${esc(x)}">`).join('')}</datalist>` : ''}`;
+  };
+  openSheet({
+    title, wide,
+    body: `${intro ? `<p>${intro}</p>` : ''}<form class="form" id="sheetForm" autocomplete="off">${fields.map(f => f.type === 'check' ? `<label class="check ${f.full ? 'full' : ''}">${input(f)}${esc(f.label)}</label>` : `<label class="${f.full ? 'full' : ''}">${esc(f.label)}${f.required ? ' *' : ''}${input(f)}</label>`).join('')}<button type="submit" hidden></button></form><div class="err" id="sheetErr"></div>`,
+    foot: `<span class="spacer"></span><button class="btn" data-close>Cancel</button><button class="btn primary" id="sheetSave">${esc(saveLabel)}</button>`,
+    onMount: el => {
+      const form = $('#sheetForm', el);
+      const submit = async e => {
+        e && e.preventDefault();
+        const out = {};
+        for (const f of fields) {
+          const node = form.elements[f.k];
+          let v = f.type === 'check' ? node.checked : node.value.trim();
+          if (f.type === 'number') v = v === '' ? null : +v;
+          if (f.type === 'date' || f.type === 'select' || f.type === 'text' || f.type === 'textarea' || !f.type) v = v === '' ? null : v;
+          if (f.required && (v === null || v === '')) { $('#sheetErr', el).textContent = `${f.label} is needed.`; node.focus(); return; }
+          out[f.k] = v;
+        }
+        const btn = $('#sheetSave', el); btn.disabled = true;
+        try { await onSave(out); closeSheet(); render(); }
+        catch (err) { console.error(err); $('#sheetErr', el).textContent = friendlyError(err); btn.disabled = false; }
+      };
+      form.onsubmit = submit;
+      $('#sheetSave', el).onclick = submit;
+    },
+  });
+}
+
+function confirmSheet(title, text, okLabel, onOk, danger = true) {
+  openSheet({ title, body: `<p>${text}</p><div class="err" id="sheetErr"></div>`, foot: `<span class="spacer"></span><button class="btn" data-close>Cancel</button><button class="btn ${danger ? 'danger' : 'primary'}" id="okBtn">${esc(okLabel)}</button>`,
+    onMount: el => { $('#okBtn', el).onclick = async () => { $('#okBtn', el).disabled = true; try { await onOk(); closeSheet(); render(); } catch (e) { $('#sheetErr', el).textContent = friendlyError(e); $('#okBtn', el).disabled = false; } }; } });
+}
+
+// Part picker: type any number or words of the description. Resolves {part_id, number}
+function pickPart(title, { allowNew = true, exclude } = {}) {
+  return new Promise(resolve => {
+    let active = 0, results = [];
+    const search = q => {
+      q = lc(q.trim());
+      const out = [];
+      for (const p of db.parts) {
+        if (p.id === exclude) continue;
+        const nums = D.numbers.get(p.id) || [];
+        let score = -1, hit = null;
+        for (const n of nums) { const v = lc(n.number); if (v === q) { score = 100; hit = n.number; break; } if (q && v.startsWith(q)) { score = Math.max(score, 60); hit = hit || n.number; } else if (q && v.includes(q)) { score = Math.max(score, 40); hit = hit || n.number; } }
+        if (score < 0 && q && q.split(/\s+/).every(w => lc(p.description).includes(w))) score = 20;
+        if (!q) score = 1;
+        if (score >= 0) out.push({ p, score: score - (p.archived ? 5 : 0), hit: hit || mainNo(p.id) });
+      }
+      return out.sort((a, b) => b.score - a.score || mainNo(a.p.id).localeCompare(mainNo(b.p.id), undefined, { numeric: true })).slice(0, 60);
+    };
+    const draw = el => {
+      const q = $('#pq', el).value;
+      results = search(q);
+      active = Math.min(active, Math.max(0, results.length - 1));
+      $('.list', el).innerHTML = results.map((r, i) => `<button class="opt ${i === active ? 'active' : ''}" data-i="${i}"><span class="pn">${esc(r.hit)}</span><span class="desc" style="flex:1">${esc(r.p.description)}${r.p.archived ? ' <span class="pill">Archived</span>' : ''}</span><span class="alias">${esc((D.numbers.get(r.p.id) || []).map(n => n.number).filter(n => n !== r.hit).join(' / '))}</span></button>`).join('')
+        + (allowNew && q.trim() && !results.some(r => r.score === 100) ? `<button class="opt" data-new="1"><span class="pn">${ICON.plus}</span><span>New part “${esc(q.trim())}”…</span></button>` : '')
+        || '<div class="empty">No match.</div>';
+    };
+    openSheet({
+      title, wide: true,
+      body: `<div class="picker"><input id="pq" placeholder="Type a part number (old or new) or words from the description" autocomplete="off"><div class="list"></div></div>`,
+      onMount: el => {
+        const inp = $('#pq', el);
+        inp.oninput = () => { active = 0; draw(el); };
+        inp.onkeydown = e => {
+          if (e.key === 'ArrowDown') { active = Math.min(active + 1, results.length - 1); draw(el); e.preventDefault(); }
+          if (e.key === 'ArrowUp') { active = Math.max(active - 1, 0); draw(el); e.preventDefault(); }
+          if (e.key === 'Enter' && results[active]) { e.preventDefault(); const r = results[active]; closeSheet(); resolve({ part_id: r.p.id, number: r.hit }); }
+        };
+        $('.list', el).onclick = e => {
+          const b = e.target.closest('.opt'); if (!b) return;
+          if (b.dataset.new) { const num = inp.value.trim(); closeSheet(); newPartSheet(num).then(p => resolve(p ? { part_id: p.id, number: num } : null)); return; }
+          const r = results[+b.dataset.i]; closeSheet(); resolve({ part_id: r.p.id, number: r.hit });
+        };
+        draw(el);
+      },
+    });
+    const bg = $('#sheet'); const prev = bg.onclick;
+    bg.onclick = e => { if (e.target === bg || e.target.closest('[data-close]')) { closeSheet(); resolve(null); } else if (prev) prev(e); };
+  });
+}
+
+function newPartSheet(number = '', description = '') {
+  return new Promise(resolve => {
+    formSheet({
+      title: 'New part', intro: 'Add other numbers (old, new, client) on the part’s page afterwards.',
+      fields: [{ k: 'number', label: 'Part number', required: true }, { k: 'label', label: 'Number type', type: 'select', options: [['', '—'], 'new', 'old', 'client', 'supplier'] }, { k: 'description', label: 'Description', required: true, full: true }, { k: 'notes', label: 'Notes', type: 'textarea', full: true }],
+      values: { number, description },
+      onSave: async v => {
+        if (D.partByNumber.has(lc(v.number))) throw new Error(`${v.number} already belongs to "${partDesc(D.partByNumber.get(lc(v.number)))}".`);
+        const p = await ins('parts', { description: v.description, notes: v.notes });
+        try { await ins('part_numbers', { part_id: p.id, number: v.number, label: v.label, is_main: true }); }
+        catch (e) { await del('parts', p.id); throw e; }
+        toast('Part added'); resolve(p);
+      },
+    });
+    const bg = $('#sheet'); const prev = bg.onclick;
+    bg.onclick = e => { if (e.target === bg || e.target.closest('[data-close]')) { closeSheet(); resolve(null); } else if (prev) prev(e); };
+  });
+}
+
+const orderFields = [
+  { k: 'title', label: 'Order name', required: true, full: true, placeholder: 'e.g. 2027 Q1/Q2 Mechanical' },
+  { k: 'po_number', label: 'PO number', placeholder: 'e.g. PO5002700' }, { k: 'po_date', label: 'PO date', type: 'date' },
+  { k: 'quote_ref', label: 'Quote ref' }, { k: 'quote_sent', label: 'Quote sent', type: 'date' },
+  { k: 'client', label: 'Client', default: 'Burj Khalifa' }, { k: 'expected_date', label: 'Expected by (whole order)', type: 'date' },
+  { k: 'notes', label: 'Notes', type: 'textarea', full: true },
+  { k: 'closed', label: 'Closed: stop counting what’s left as outstanding', type: 'check', full: true },
+];
+const orderOptions = (blank = '— none —') => [['', blank], ...[...db.orders].sort((a, b) => String(b.po_date).localeCompare(String(a.po_date))).map(o => [o.id, `${o.po_number || '(no PO)'} · ${o.title}`])];
+const deliveryFields = () => [
+  { k: 'dn_number', label: 'Delivery note number', required: true, placeholder: 'e.g. SO32600' }, { k: 'order_id', label: 'For order', type: 'select', options: orderOptions() },
+  { k: 'ship_date', label: 'Ship date', type: 'date' }, { k: 'received_date', label: 'Received date', type: 'date' },
+  { k: 'tracking', label: 'Tracking number', full: true }, { k: 'notes', label: 'Notes', type: 'textarea', full: true },
+];
+const deliveryOptions = () => [['', '— none —'], ...[...db.deliveries].sort((a, b) => String(b.ship_date).localeCompare(String(a.ship_date))).map(d => [d.id, `${d.dn_number}${d.order_id ? ' · ' + orderName(d.order_id) : ''}`])];
+const invoiceFields = () => [
+  { k: 'invoice_no', label: 'Invoice number', required: true }, { k: 'invoice_date', label: 'Invoice date', type: 'date' },
+  { k: 'order_id', label: 'Order', type: 'select', options: orderOptions() }, { k: 'delivery_id', label: 'Delivery note', type: 'select', options: deliveryOptions() },
+  { k: 'amount', label: 'Amount', type: 'number' }, { k: 'currency', label: 'Currency', default: 'AED', list: ['AED', 'USD', 'EUR'] },
+  { k: 'paid', label: 'Paid', type: 'check' }, { k: 'notes', label: 'Notes', type: 'textarea', full: true },
+];
+const docFields = () => [
+  { k: 'name', label: 'Name', required: true, full: true }, { k: 'url', label: 'Link (copy from SharePoint/OneDrive: Share → Copy link)', full: true, placeholder: 'https://…' },
+  { k: 'doc_type', label: 'Type', type: 'select', options: ['PO', 'Quote', 'Delivery note', 'Invoice', 'Photo', 'Other'] },
+  { k: 'order_id', label: 'Order', type: 'select', options: orderOptions() }, { k: 'delivery_id', label: 'Delivery', type: 'select', options: deliveryOptions() },
+];
+function issueFields(deliveryId) {
+  const d = D.delivery.get(deliveryId);
+  const lines = d && d.order_id ? (D.linesByOrder.get(d.order_id) || []) : db.order_lines;
+  return [
+    ...(deliveryId ? [] : [{ k: 'delivery_id', label: 'Delivery note', type: 'select', options: deliveryOptions() }]),
+    { k: 'order_line_id', label: 'Which order line', type: 'select', full: true, options: [['', '— not specific —'], ...lines.map(l => [l.id, `${orderName(l.order_id)} · ${mainNo(l.part_id)} ${partDesc(l.part_id)} (ordered ${fmtN(l.qty)})`])] },
+    { k: 'kind', label: 'Type', type: 'select', options: ['Short', 'Wrong item', 'Damaged', 'Other'] }, { k: 'qty', label: 'Quantity affected', type: 'number' },
+    { k: 'description', label: 'What happened', type: 'textarea', full: true },
+    { k: 'status', label: 'Status', type: 'select', options: ['Open', 'Replacement requested', 'Resolved'] }, { k: 'resolved_date', label: 'Resolved on', type: 'date' },
+  ];
+}
+
+// ───────────────────────── actions ─────────────────────────
+const ACTIONS = {
+  reload: () => act(async () => { await loadAll(); historyCache = null; }, 'Up to date'),
+  signout: async () => { await sb.auth.signOut(); location.reload(); },
+  export: () => exportCSV(),
+  print: () => window.print(),
+  refreshHistory: () => { historyCache = null; render(); },
+  outMode: b => { ui.outMode = b.dataset.v; render(); },
+  urgentOnly: b => { ui.urgentOnly = b.dataset.v === '1'; render(); },
+  orderFilter: b => { ui.orderFilter = b.dataset.v; render(); },
+  issueFilter: b => { ui.issueFilter = b.dataset.v; render(); },
+  showArchived: b => { ui.showArchived = b.dataset.v === '1'; render(); },
+
+  newOrder: () => formSheet({ title: 'New order', fields: orderFields, saveLabel: 'Create order', onSave: async v => { const o = await ins('orders', { ...v, client: v.client || 'Burj Khalifa' }); go('#/orders/' + o.id); } }),
+  editOrder: b => { const o = D.order.get(b.dataset.id); formSheet({ title: 'Edit order', fields: orderFields, values: o, onSave: v => upd('orders', o.id, { ...v, client: v.client || 'Burj Khalifa' }) }); },
+  deleteOrder: b => { const o = D.order.get(b.dataset.id); const n = (D.linesByOrder.get(o.id) || []).length;
+    confirmSheet('Delete order?', `This deletes <b>${esc(o.po_number || '')} ${esc(o.title)}</b> and its ${n} line${n === 1 ? '' : 's'} and document links. Deliveries and invoices stay, but are no longer linked to it. This can’t be undone.`, 'Delete order', async () => { await del('orders', o.id); go('#/orders'); }); },
+  addLine: async b => {
+    const pick = await pickPart('Add line: which part?'); if (!pick) return;
+    formSheet({ title: 'Add line', intro: `<b>${esc(mainNo(pick.part_id))}</b> ${esc(partDesc(pick.part_id))}`, fields: [
+      { k: 'ordered_as', label: 'Ordered as (number on the PO)', list: (D.numbers.get(pick.part_id) || []).map(n => n.number) }, { k: 'qty', label: 'Quantity', type: 'number', required: true },
+      { k: 'urgent', label: 'Urgent', type: 'check' }, { k: 'expected_date', label: 'Expected', type: 'date' }, { k: 'unit_price', label: 'Unit price', type: 'number' }, { k: 'notes', label: 'Notes', full: true }],
+      values: { ordered_as: pick.number }, saveLabel: 'Add line',
+      onSave: v => ins('order_lines', { ...v, order_id: b.dataset.id, part_id: pick.part_id, sort: (D.linesByOrder.get(b.dataset.id) || []).length }) });
+  },
+  pasteLines: b => pasteLinesSheet(b.dataset.id),
+  changeLinePart: async b => { const l = D.line.get(b.dataset.id); const pick = await pickPart('Change part on this line', { exclude: l.part_id }); if (pick) act(() => upd('order_lines', l.id, { part_id: pick.part_id, ordered_as: l.ordered_as || pick.number }), 'Part changed'); },
+  deleteLine: b => { const l = D.line.get(b.dataset.id); const dl = (D.dlByLine.get(l.id) || []).length;
+    confirmSheet('Delete line?', `Delete <b>${esc(mainNo(l.part_id))}</b> × ${fmtN(l.qty)} from this order?${dl ? ` It has ${dl} delivery item${dl > 1 ? 's' : ''} recorded; those stay on their delivery notes but won’t count against any line.` : ''}<br><br>Tip: if the client cancelled it, tick “Cancelled” instead to keep the record.`, 'Delete line', () => del('order_lines', l.id)); },
+
+  newDelivery: b => formSheet({ title: 'Record delivery', intro: 'After saving you can tick off what arrived.', fields: deliveryFields(), values: { order_id: b.dataset.order || '', received_date: todayISO() }, saveLabel: 'Next',
+    onSave: async v => { const d = await ins('deliveries', v); go('#/deliveries/' + d.id); } }),
+  editDelivery: b => { const d = D.delivery.get(b.dataset.id); formSheet({ title: 'Edit delivery', fields: deliveryFields(), values: d, onSave: v => upd('deliveries', d.id, v) }); },
+  deleteDelivery: b => { const d = D.delivery.get(b.dataset.id);
+    confirmSheet('Delete delivery?', `This deletes <b>${esc(d.dn_number)}</b>, its ${(D.dlByDelivery.get(d.id) || []).length} item(s) and its problems. The quantities go back to outstanding on the order.`, 'Delete delivery', async () => { await del('deliveries', d.id); go('#/deliveries'); }); },
+  fillAll: () => $$('#receiveTbl .rq').forEach(i => { i.value = i.dataset.max; }),
+  addDLines: b => {
+    const rows = $$('#receiveTbl tr[data-line]').map(tr => ({ line: D.line.get(tr.dataset.line), qty: +($('.rq', tr).value || 0), as: $('.ras', tr).value, max: +$('.rq', tr).dataset.max })).filter(r => r.qty > 0);
+    if (!rows.length) return toast('Type a quantity in “Received now” first.', true);
+    const over = rows.filter(r => r.qty > r.max);
+    const save = () => act(() => ins('delivery_lines', rows.map(r => ({ delivery_id: b.dataset.id, order_line_id: r.line.id, part_id: r.line.part_id, shipped_as: r.as, qty: r.qty }))), `${rows.length} item${rows.length > 1 ? 's' : ''} added`);
+    if (over.length) confirmSheet('More than outstanding', `${over.map(r => `${esc(mainNo(r.line.part_id))}: ${fmtN(r.qty)} received, only ${fmtN(r.max)} outstanding`).join('<br>')}<br><br>Add anyway?`, 'Add anyway', save, false);
+    else save();
+  },
+  deleteDLine: b => act(() => del('delivery_lines', b.dataset.id), 'Removed'),
+
+  newIssue: b => formSheet({ title: 'Report a problem', fields: issueFields(b.dataset.delivery), values: { status: 'Open', kind: 'Short' },
+    onSave: v => ins('issues', { ...v, delivery_id: b.dataset.delivery || v.delivery_id, resolved_date: v.status === 'Resolved' ? (v.resolved_date || todayISO()) : v.resolved_date }) }),
+  editIssue: b => { const x = db.issues.find(i => i.id === b.dataset.id); formSheet({ title: 'Edit problem', fields: issueFields(x.delivery_id), values: x,
+    onSave: v => upd('issues', x.id, { ...v, resolved_date: v.status === 'Resolved' ? (v.resolved_date || todayISO()) : v.resolved_date }) }); },
+  deleteIssue: b => confirmSheet('Delete problem?', 'Delete this problem record? If it was sorted out, set it to Resolved instead to keep the history.', 'Delete', () => del('issues', b.dataset.id)),
+
+  newInvoice: b => formSheet({ title: 'Add invoice', fields: invoiceFields(), values: { order_id: b.dataset.order || '', currency: 'AED' }, onSave: v => ins('invoices', { ...v, currency: v.currency || 'AED' }) }),
+  editInvoice: b => { const x = D.invoice.get(b.dataset.id); formSheet({ title: 'Edit invoice', fields: invoiceFields(), values: x, onSave: v => upd('invoices', x.id, { ...v, currency: v.currency || 'AED' }) }); },
+  deleteInvoice: b => confirmSheet('Delete invoice?', 'Delete this invoice record?', 'Delete', () => del('invoices', b.dataset.id)),
+
+  newDoc: b => formSheet({ title: 'Add document link', intro: 'The file stays in SharePoint or OneDrive; this keeps a link to it.', fields: docFields(), values: { order_id: b.dataset.order || '', delivery_id: b.dataset.delivery || '', doc_type: b.dataset.delivery ? 'Delivery note' : 'PO' }, onSave: v => ins('documents', v) }),
+  editDoc: b => { const x = db.documents.find(d => d.id === b.dataset.id); formSheet({ title: 'Edit document link', fields: docFields(), values: x, onSave: v => upd('documents', x.id, v) }); },
+  deleteDoc: b => confirmSheet('Remove link?', 'Remove this link? The file itself in SharePoint is not touched.', 'Remove', () => del('documents', b.dataset.id)),
+
+  newPart: () => newPartSheet(ui.q).then(p => { if (p) go('#/parts/' + p.id); }),
+  editPart: b => { const p = D.part.get(b.dataset.id); formSheet({ title: 'Edit part', fields: [{ k: 'description', label: 'Description', required: true, full: true }, { k: 'notes', label: 'Notes', type: 'textarea', full: true }], values: p, onSave: v => upd('parts', p.id, v) }); },
+  archivePart: b => { const p = D.part.get(b.dataset.id); act(() => upd('parts', p.id, { archived: !p.archived }), p.archived ? 'Unarchived' : 'Archived: hidden from the parts list and pickers'); },
+  deletePart: b => { const p = D.part.get(b.dataset.id); const used = (D.linesByPart.get(p.id) || []).length + db.delivery_lines.filter(x => x.part_id === p.id).length;
+    if (used) return confirmSheet('Archive instead?', `<b>${esc(mainNo(p.id))}</b> is on ${used} order or delivery line(s), so deleting it would break those records. Archiving hides it from lists and pickers but keeps the history.`, 'Archive part', () => upd('parts', p.id, { archived: true }), false);
+    confirmSheet('Delete part?', `Delete <b>${esc(mainNo(p.id))}</b> ${esc(p.description)} and all its numbers?`, 'Delete part', async () => { await del('parts', p.id); go('#/parts'); }); },
+  mergePart: async b => {
+    const keep = b.dataset.id; const pick = await pickPart('Merge which part into this one?', { allowNew: false, exclude: keep }); if (!pick) return;
+    confirmSheet('Merge parts?', `<b>${esc(mainNo(pick.part_id))}</b> ${esc(partDesc(pick.part_id))}<br>will be merged into<br><b>${esc(mainNo(keep))}</b> ${esc(partDesc(keep))}.<br><br>All its numbers, order lines and deliveries move over, and it is removed. Use this when two numbers turn out to be the same part.`, 'Merge',
+      async () => { const { error } = await sb.rpc('merge_parts', { keep, absorb: pick.part_id }); if (error) throw error; await loadAll(); toast('Merged'); }, false);
+  },
+  addNumber: b => { const num = $('#newNum').value.trim(); if (!num) return $('#newNum').focus();
+    if (D.partByNumber.has(lc(num))) { const other = D.partByNumber.get(lc(num)); return toast(other === b.dataset.id ? 'This part already has that number.' : `${num} already belongs to ${mainNo(other)} ${partDesc(other)}. Use “Merge” if they are the same part.`, true); }
+    act(() => ins('part_numbers', { part_id: b.dataset.id, number: num, label: $('#newNumLabel').value || null, is_main: false }), 'Number added'); },
+  makeMain: b => { const n = db.part_numbers.find(x => x.id === b.dataset.id);
+    act(async () => { for (const o of D.numbers.get(n.part_id) || []) if (o.is_main && o.id !== n.id) await upd('part_numbers', o.id, { is_main: false }); await upd('part_numbers', n.id, { is_main: true }); }, `${n.number} is now the main number`); },
+  deleteNumber: b => { const n = db.part_numbers.find(x => x.id === b.dataset.id);
+    confirmSheet('Remove number?', `Remove <b>${esc(n.number)}</b> from this part? Orders that used it keep showing it as typed.`, 'Remove', async () => {
+      await del('part_numbers', n.id);
+      if (n.is_main) { const next = (D.numbers.get(n.part_id) || [])[0]; if (next) await upd('part_numbers', next.id, { is_main: true }); }
+    }); },
+};
+
+function pasteLinesSheet(orderId) {
+  openSheet({
+    title: 'Paste lines', wide: true,
+    body: `<p>One line per row: <b>part number</b> then <b>quantity</b>. Copying two columns from Excel or the PO works. Add <code>urgent</code> anywhere on a row to flag it. New numbers can be created with the text after the quantity as the description.</p>
+      <div class="form"><label class="full">Lines<textarea id="pasteBox" style="min-height:180px;font-family:ui-monospace,Consolas,monospace" placeholder="09110  500  urgent&#10;40-04743  50&#10;1167  3000"></textarea></label></div><div id="pastePreview"></div><div class="err" id="sheetErr"></div>`,
+    foot: `<span class="spacer"></span><button class="btn" data-close>Cancel</button><button class="btn primary" id="pasteGo" disabled>Add lines</button>`,
+    onMount: el => {
+      let parsed = [];
+      const parse = () => {
+        parsed = $('#pasteBox', el).value.split(/\r?\n/).map(s => s.trim()).filter(Boolean).map(s => {
+          const toks = (s.includes('\t') ? s.split('\t') : s.split(/\s+/)).map(x => x.trim()).filter(Boolean);
+          const number = toks[0];
+          const qi = toks.findIndex((x, i) => i > 0 && /^\d[\d,]*(\.\d+)?$/.test(x));
+          const qty = qi > 0 ? +toks[qi].replace(/,/g, '') : null;
+          const urgent = toks.some((x, i) => i > 0 && /^urgent$/i.test(x));
+          const desc = toks.filter((x, i) => i > 0 && i !== qi && !/^urgent$/i.test(x)).join(' ');
+          return { raw: s, number, qty, urgent, desc, part_id: D.partByNumber.get(lc(number)) || null };
+        });
+        $('#pastePreview', el).innerHTML = parsed.length ? `<div class="tbl-wrap" style="margin-top:10px"><table class="tbl"><thead><tr><th>Number</th><th class="num">Qty</th><th>Part found</th><th>Urgent</th></tr></thead><tbody>${parsed.map(r => `<tr><td class="pn">${esc(r.number)}</td><td class="num">${r.qty === null ? '<span class="flag">?</span>' : fmtN(r.qty)}</td><td>${r.part_id ? `${partCell(r.part_id)} <span class="small">${esc(partDesc(r.part_id))}</span>` : `<span class="pill amber">New part</span> ${esc(r.desc || '(no description)')}`}</td><td>${r.urgent ? '<span class="pill red">Urgent</span>' : ''}</td></tr>`).join('')}</tbody></table></div>` : '';
+        $('#pasteGo', el).disabled = !parsed.length || parsed.some(r => r.qty === null);
+      };
+      $('#pasteBox', el).oninput = parse;
+      $('#pasteGo', el).onclick = async () => {
+        $('#pasteGo', el).disabled = true;
+        try {
+          for (const r of parsed.filter(r => !r.part_id)) {
+            if (D.partByNumber.has(lc(r.number))) { r.part_id = D.partByNumber.get(lc(r.number)); continue; }
+            const p = await ins('parts', { description: r.desc || '(add description)' });
+            await ins('part_numbers', { part_id: p.id, number: r.number, is_main: true });
+            r.part_id = p.id;
+          }
+          const start = (D.linesByOrder.get(orderId) || []).length;
+          await ins('order_lines', parsed.map((r, i) => ({ order_id: orderId, part_id: r.part_id, ordered_as: r.number, qty: r.qty, urgent: r.urgent, sort: start + i })));
+          closeSheet(); toast(`${parsed.length} lines added`); render();
+        } catch (e) { $('#sheetErr', el).textContent = friendlyError(e); $('#pasteGo', el).disabled = false; }
+      };
+    },
+  });
+}
+
+function exportCSV() {
+  if (!exportable) return;
+  const cell = v => { v = v === null || v === undefined ? '' : String(v); return /[",\n\r]/.test(v) || /^[=+\-@]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+  const lines = [exportable.cols.filter(c => c.label).map(c => cell(c.label)).join(',')];
+  for (const r of exportable.rows) lines.push(exportable.cols.filter(c => c.label).map(c => cell(c.text ? c.text(r) : r[c.key])).join(','));
+  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `BK ${exportable.name} ${todayISO()}.csv`.replace(/[\\/:*?"<>|]/g, '-');
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+// ───────────────────────── events ─────────────────────────
+document.addEventListener('click', e => {
+  const a = e.target.closest('[data-act]');
+  if (a && ACTIONS[a.dataset.act]) { e.preventDefault(); ACTIONS[a.dataset.act](a); return; }
+  if (e.target.closest('[data-stop], a, input, select, textarea, button')) return;
+  const s = e.target.closest('[data-sort]');
+  if (s) { const [id, key] = s.dataset.sort.split(':'); const cur = ui.sort[id]; ui.sort[id] = { key, dir: cur && cur.key === key ? -cur.dir : 1 }; render(); return; }
+  const g = e.target.closest('[data-go]');
+  if (g) go(g.dataset.go);
+});
+// Inline edits: save when the field loses focus / changes
+document.addEventListener('change', e => {
+  const el = e.target.closest('[data-edit]'); if (!el) return;
+  const [table, id, field] = el.dataset.edit.split(':');
+  let v = el.type === 'checkbox' ? el.checked : el.value.trim();
+  if (el.type === 'number') { v = v === '' ? (field === 'qty' || field === 'shipped_before' ? 0 : null) : +v; if (v !== null && (isNaN(v) || v < 0)) { toast('Use a number of 0 or more.', true); render(); return; } }
+  else if (v === '' && el.type !== 'checkbox') v = null;
+  if (table === 'part_numbers' && field === 'number') {
+    if (!v) { toast('A part number can’t be blank.', true); render(); return; }
+    const other = D.partByNumber.get(lc(v)); const me = db.part_numbers.find(n => n.id === id);
+    if (other && lc(v) !== lc(me.number)) { toast(`${v} already belongs to ${mainNo(other)}. Use “Merge” if they are the same part.`, true); render(); return; }
+  }
+  const patch = { [field]: v };
+  if (table === 'issues' && field === 'status') patch.resolved_date = v === 'Resolved' ? todayISO() : null;
+  act(() => upd(table, id, patch), 'Saved');
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !$('#sheet').hidden) { closeSheet(); return; }
+  if (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName) && $('#sheet').hidden) { e.preventDefault(); $('#search').focus(); }
+});
+$('#search').addEventListener('input', e => { ui.q = e.target.value; clearTimeout(render._s); render._s = setTimeout(render, 120); });
+window.addEventListener('hashchange', () => { if (!$('#sheet').hidden) closeSheet(); render(); });
+window.addEventListener('focus', () => { if (user && Date.now() - loadedAt > 60000 && $('#sheet').hidden && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) loadAll().then(render).catch(() => {}); });
+
+// ───────────────────────── sign-in & start ─────────────────────────
+function showSignIn(msg) {
+  $('#app').innerHTML = `<div class="signin" style="grid-column:1/-1"><h1>BK Tracker</h1><p>${msg || 'Sign in with your email. We’ll send you a link.'}</p>
+    <form id="signForm"><input id="email" type="email" required placeholder="you@company.com" autocomplete="email"><button class="btn primary" style="width:100%;justify-content:center">Email me a sign-in link</button></form><div class="err" id="signErr"></div></div>`;
+  $('#signForm').onsubmit = async e => {
+    e.preventDefault();
+    const email = $('#email').value.trim();
+    const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname } });
+    if (error) $('#signErr').textContent = friendlyError(error);
+    else $('#signForm').outerHTML = `<p><b>Check your email.</b> Open the link from ${esc(email)} on this device to sign in.</p>`;
+  };
+}
+async function start() {
+  const { data } = await sb.auth.getSession();
+  if (!data.session) return showSignIn();
+  user = data.session.user;
+  const allowed = await sb.rpc('is_allowed');
+  if (allowed.error) return showSignIn('Could not reach the database: ' + esc(friendlyError(allowed.error)) + '. Has supabase/schema.sql been run?');
+  if (!allowed.data) { await sb.auth.signOut(); user = null; return showSignIn(`${esc(data.session.user.email)} is not on this app’s allowed list. Add it to <code>allowed_emails</code> in Supabase, then sign in again.`); }
+  try { await loadAll(); } catch (e) { $('#content').innerHTML = `<div class="empty">Couldn’t load: ${esc(friendlyError(e))}</div>`; return; }
+  render();
+}
+sb.auth.onAuthStateChange((ev, session) => { if (ev === 'SIGNED_IN' && !user && session) start(); });
+start();
