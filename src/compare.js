@@ -3,6 +3,24 @@
 'use strict';
 
 // ── Minimal .xlsx reader: an .xlsx is a zip of XML files ──
+function parseCSV(text) {
+  const rows = []; let row = [], cell = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === ',' || ch === '\t' || ch === ';') { row.push(cell); cell = ''; }
+    else if (ch === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; }
+    else if (ch !== '\r') cell += ch;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows.map(r => r.map(v => (v !== '' && !isNaN(+v) && !/^0\d/.test(v)) ? +v : v));
+}
+async function readSheets(file) {
+  if (/\.(csv|txt|tsv)$/i.test(file.name)) return [{ name: file.name, rows: parseCSV((await file.text()).replace(/^﻿/, '')) }];
+  if (/\.xls$/i.test(file.name)) throw new Error('This is an old .xls file. In Excel, use File → Save As → Excel Workbook (.xlsx), or CSV, and choose that instead.');
+  return readXlsx(file);
+}
 async function readXlsx(file) {
   const buf = new Uint8Array(await file.arrayBuffer());
   const dv = new DataView(buf.buffer);
@@ -75,11 +93,11 @@ function parseShippingList(sheets) {
         const row = rows[r] || [];
         const po = String(row[c.po] ?? '').trim();
         if (!/^\d{6,}$/.test(po)) continue;
-        const so = String(row[c.so] ?? '').trim();
+        const so = c.so >= 0 ? String(row[c.so] ?? '').trim() : '';
         const item = String(row[c.item] ?? '').trim();
         const wcs = String(c.wc >= 0 ? row[c.wc] ?? '' : '').split(/[,;/]/).map(x => x.trim().replace(/\s*wc$/i, '')).filter(x => /^[\w.-]+$/.test(x) && !/^(none|n\/?a|closed)$/i.test(x));
         const stagedFlag = c.staged >= 0 && String(row[c.staged] ?? '').trim() !== '';
-        lines.push({ row: r + 1, po: 'PO' + po, so: /^\d+$/.test(so) ? so : '', notOnSO: !/^\d+$/.test(so), item: /not on|^none$/i.test(item) ? '' : item, wcs,
+        lines.push({ row: r + 1, po: 'PO' + po, so: /^\d+$/.test(so) ? so : '', notOnSO: c.so >= 0 && /not|none|missing/i.test(so), item: /not on|^none$/i.test(item) ? '' : item, wcs,
           desc: String(row[c.desc] ?? ''), qty: +row[c.qty] || 0, staged: stagedFlag ? (+row[c.sqty] || 0) : 0, eta: c.eta >= 0 ? row[c.eta] ?? '' : '', remark: c.rem >= 0 ? String(row[c.rem] ?? '') : '' });
       }
       if (lines.length) return { sheet: sh.name, lines };
@@ -141,6 +159,30 @@ function compareShipping(list) {
   return { res, appOnly, posMissing, soChanges };
 }
 
+const TEMPLATE_HEAD = ['PO Number', 'SO Number', 'Item Number (WET ID)', 'WetCare ID', 'Description', 'Qty Pending', 'Staged', 'Staged Qty', 'Lead Time / ETA', 'WCFR #', 'Remarks'];
+const TEMPLATE_ROWS = [
+  ['5002012', '7195', '09110', '8481WC', 'Nozzle, Base, Delrin', 500, 'x', 350, '', '', 'Keeping qty at 500'],
+  ['5002308', '7570', '40-02618', '3388WC', 'Hose Barb, 3/4" MPT X Push-Lock, Brass', 200, '', '', '2 weeks', '', ''],
+  ['5002613', '7527', '40-18442', '1167WC', 'Lamp, 12V AC/DC, 90W', 3500, 'x', 600, '', '', ''],
+];
+const FORMAT_HELP = `<div class="card fmt">
+  <h2>What to upload</h2>
+  <p>The pending parts list from shipping, as an Excel file (.xlsx) or CSV. One row per open PO line. The column names just need to contain these words; order doesn’t matter, and extra columns or title rows above the table are ignored.</p>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr>${TEMPLATE_HEAD.map((h, i) => `<th class="${i === 0 || i === 2 || i === 5 ? 'req' : ''}">${esc(h)}</th>`).join('')}</tr></thead>
+  <tbody>${TEMPLATE_ROWS.map(r => `<tr>${r.map(v => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+  <ul class="small">
+    <li><b>Needed:</b> PO Number (digits, with or without “PO”), Item Number (WET’s part number) and Qty Pending (what they still owe).</li>
+    <li><b>Helpful:</b> WetCare ID (the client number, e.g. 8481WC; several can go in one cell, separated by commas), SO Number, Description (used to pair lines when a number is new), Staged + Staged Qty, Remarks.</li>
+    <li>Rows whose PO cell isn’t a number (headings like “SO 7195 | PO 5002012”) are skipped.</li>
+  </ul>
+  <button class="btn small" data-act="shipTemplate">${ICON.down}Download a blank template (CSV)</button>
+</div>`;
+ACTIONS.shipTemplate = () => {
+  const cell = v => /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v);
+  const csv = [TEMPLATE_HEAD, ...TEMPLATE_ROWS].map(r => r.map(cell).join(',')).join('\r\n');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv' })); a.download = 'Shipping pending list template.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+};
 const SHIP_KIND = {
   match: ['green', 'Match'], qty: ['red', 'Qty differs'], notOnSO: ['red', 'Not on shipping’s SO'],
   shipOnly: ['amber', 'Only on shipping’s list'], noPO: ['amber', 'PO not in the app'], mixup: ['red', 'Part number mix-up'],
@@ -149,7 +191,7 @@ VIEWS.compare = () => {
   const C = ui.compare;
   const intro = `<div class="card dropzone" id="dropzone">
       <div><b>Compare with shipping’s pending parts list</b><p class="small" style="margin:4px 0 0">Choose or drop the Excel file shipping sends (the BDTP “Pending Parts List”). It’s read here in your browser and checked line by line against the app: PO, part (any WET, client or old number) and quantity.</p></div>
-      <label class="btn primary">${ICON.down}Choose file…<input type="file" id="shipFile" accept=".xlsx" hidden></label></div>`;
+      <label class="btn primary">${ICON.down}Choose file…<input type="file" id="shipFile" accept=".xlsx,.csv" hidden></label></div>` + FORMAT_HELP;
   if (!C) return { title: 'Shipping check', sub: 'Does shipping’s list agree with yours?', html: intro };
   if (C.error) return { title: 'Shipping check', html: intro + `<div class="warnbox">${esc(C.error)}</div>` };
   const { res, appOnly, posMissing, soChanges } = compareShipping(C.list);
@@ -198,12 +240,12 @@ VIEWS.compare = () => {
     { label: 'Shipping item', text: r => r.s.item }, { label: 'Client #', text: r => r.s.wcs.map(w => w + 'WC').join(', ') }, { label: 'Shipping description', text: r => r.s.desc },
     { label: 'App part', text: r => r.line ? mainNo(r.line.part_id) : '' }, { label: 'Shipping pending', text: r => r.s.qty }, { label: 'App owed', text: r => r.line ? D.L.get(r.line.id).outstanding : '' },
     { label: 'Staged', text: r => r.s.staged || '' }, { label: 'Shipping remark', text: r => r.s.remark }] };
-  return { title: 'Shipping check', sub: `${esc(C.fileName)} · ${esc(C.list.sheet)}`, tools: `<label class="btn small">${ICON.down}Choose another file…<input type="file" id="shipFile" accept=".xlsx" hidden></label>`, html };
+  return { title: 'Shipping check', sub: `${esc(C.fileName)} · ${esc(C.list.sheet)}`, tools: `<label class="btn small">${ICON.down}Choose another file…<input type="file" id="shipFile" accept=".xlsx,.csv" hidden></label>`, html };
 };
 
 async function loadShippingFile(file) {
   try {
-    const list = parseShippingList(await readXlsx(file));
+    const list = parseShippingList(await readSheets(file));
     ui.compare = { fileName: file.name, list, acceptProbable: new Set() };
   } catch (e) { console.error(e); ui.compare = { error: friendlyError(e) }; }
   if (route().view !== 'compare') go('#/compare'); else render();

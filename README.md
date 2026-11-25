@@ -16,9 +16,15 @@ Same approach as Jino's Tally: plain HTML/CSS/JavaScript, no framework, no build
 - **issues**: short / wrong item / damaged, with status Open → Replacement requested → Resolved.
 - **invoices**: linked to an order and a delivery note, checked against both (three-way match).
 - **documents**: links to files that stay in SharePoint/OneDrive.
+- **notes**: a thread on an order line or a part (who + when). Shown wherever that line or part appears.
+- **issues** also hold **warranty claims** (kind = Warranty claim, with claim/RMA number and failed date).
 - **history**: every insert/edit/delete, written automatically by the database.
 
 Worked out, never typed: shipped = shipped before tracking + delivered; outstanding = ordered − shipped (0 if the line is cancelled or the order closed); order status (Quote sent / PO received / Partially shipped / Fully shipped / Closed).
+
+## Home and Shipping check
+- **Home** (default page): needs attention, ready to ship (staged), open POs oldest first, lines waiting longest, recent activity.
+- **Shipping check**: choose shipping's pending parts list (.xlsx or .csv). Read in the browser, matched by PO + any part number, differences listed, safe updates (numbers, staged, SO) applied with one button. The page shows the expected format and offers a template.
 
 ## Settings
 The gear (sidebar bottom, or top right on a phone): the same 15 themes as Tally, light/dark/match Windows, which part number leads (WET or client), row density, which Outstanding view opens, a full JSON backup, sign out. Saved per browser.

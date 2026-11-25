@@ -34,6 +34,9 @@ const ICON = {
   gear: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
   search: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>',
   check: '<svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>',
+  note: '<svg viewBox="0 0 24 24"><path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-8l-4 3v-3H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/></svg>',
+  home: '<svg viewBox="0 0 24 24"><path d="M4 11l8-6 8 6v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"/></svg>',
+  shield: '<svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg>',
   clock: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
 };
 
@@ -136,12 +139,14 @@ applyTheme();
 // ───────────────────────── data ─────────────────────────
 const cfg = window.BK_CONFIG;
 const sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey, { auth: { persistSession: true, detectSessionInUrl: true, autoRefreshToken: true } });
-const TABLES = ['parts', 'part_numbers', 'orders', 'order_lines', 'deliveries', 'delivery_lines', 'issues', 'invoices', 'documents'];
+const TABLES = ['parts', 'part_numbers', 'orders', 'order_lines', 'deliveries', 'delivery_lines', 'issues', 'invoices', 'documents', 'notes'];
+const OPTIONAL = new Set(['notes']);   // tables added by later fixes; the app works without them
 const db = Object.fromEntries(TABLES.map(t => [t, []]));
 let D = {};               // derived indexes, rebuilt after every change
 let loadedAt = 0;
 let hasSO = false;   // true once orders.wet_so exists (supabase/fixes/2026-11-25-wet-so.sql)
-let hasStaged = false; // true once order_lines.staged_qty exists (supabase/fixes/2026-11-25-staged.sql)
+let hasStaged = false;
+let hasNotes = false;  // true once the notes table exists (supabase/fixes/2026-11-25-notes-warranty.sql) // true once order_lines.staged_qty exists (supabase/fixes/2026-11-25-staged.sql)
 let user = null;
 
 async function fetchAll(table) {
@@ -154,8 +159,9 @@ async function fetchAll(table) {
   }
 }
 async function loadAll() {
-  const res = await Promise.all(TABLES.map(fetchAll));
-  TABLES.forEach((t, i) => { db[t] = res[i]; });
+  const res = await Promise.all(TABLES.map(t => OPTIONAL.has(t) ? fetchAll(t).catch(() => null) : fetchAll(t)));
+  hasNotes = res[TABLES.indexOf('notes')] !== null;
+  TABLES.forEach((t, i) => { db[t] = res[i] || []; });
   loadedAt = Date.now();
   hasSO = db.orders.length ? 'wet_so' in db.orders[0] : hasSO;
   hasStaged = db.order_lines.length ? 'staged_qty' in db.order_lines[0] : hasStaged;
@@ -169,14 +175,14 @@ async function ins(table, rows) {
   const many = Array.isArray(rows);
   const { data, error } = await sb.from(table).insert(many ? rows : [rows]).select();
   if (error) throw error;
-  data.forEach(r => patchLocal(table, r)); derive();
+  data.forEach(r => patchLocal(table, r)); derive(); historyCache = null;
   return many ? data : data[0];
 }
 async function upd(table, id, patch) {
   const { data, error } = await sb.from(table).update(patch).eq('id', id).select();
   if (error) throw error;
   if (!data.length) throw new Error('Not saved: the record was not found (deleted elsewhere?). Reload to refresh.');
-  patchLocal(table, data[0]); derive();
+  patchLocal(table, data[0]); derive(); historyCache = null;
   return data[0];
 }
 async function del(table, id) {
@@ -194,6 +200,8 @@ async function del(table, id) {
     db.deliveries.forEach(x => { if (x.order_id === id) x.order_id = null; });
     db.invoices.forEach(x => { if (x.order_id === id) x.order_id = null; });
   }
+  if (table === 'order_lines') db.notes = db.notes.filter(n => n.order_line_id !== id);
+  if (table === 'parts') db.notes = db.notes.filter(n => n.part_id !== id);
   if (table === 'order_lines') { db.delivery_lines.forEach(dl => { if (dl.order_line_id === id) dl.order_line_id = null; }); db.issues.forEach(x => { if (x.order_line_id === id) x.order_line_id = null; }); }
   if (table === 'deliveries') {
     db.delivery_lines = db.delivery_lines.filter(x => x.delivery_id !== id);
@@ -202,7 +210,7 @@ async function del(table, id) {
     db.documents.forEach(x => { if (x.delivery_id === id) x.delivery_id = null; });
   }
   if (table === 'invoices') db.documents.forEach(x => { if (x.invoice_id === id) x.invoice_id = null; });
-  derive();
+  derive(); historyCache = null;
 }
 async function act(fn, okMsg) {
   try { const r = await fn(); if (okMsg) toast(okMsg); render(); return r; }
@@ -227,6 +235,9 @@ function derive() {
     invoicesByDelivery: group(db.invoices, 'delivery_id'),
     docsByOrder: group(db.documents, 'order_id'),
     docsByDelivery: group(db.documents, 'delivery_id'),
+    notesByLine: group([...db.notes].sort((a, b) => a.created_at.localeCompare(b.created_at)), 'order_line_id'),
+    notesByPart: group([...db.notes].sort((a, b) => a.created_at.localeCompare(b.created_at)), 'part_id'),
+    issuesByPart: group(db.issues, 'part_id'),
     L: new Map(), O: new Map(),
   };
   const today = todayISO();
@@ -269,7 +280,10 @@ const orderName = id => { const o = D.order.get(id); return o ? (o.po_number || 
 const soOf = id => { const o = D.order.get(id); return o && o.wet_so ? 'SO ' + o.wet_so : ''; };
 const STATUS_PILL = { 'Quote sent': '', 'PO received': 'blue', 'Partially shipped': 'amber', 'Fully shipped': 'green', 'Closed': '' };
 const statusPill = s => `<span class="pill ${STATUS_PILL[s] || ''}">${esc(s)}</span>`;
+const ISSUE_STATUS = ['Open', 'Claim submitted', 'Replacement requested', 'Replacement shipped', 'Resolved'];
+const ISSUE_KINDS = ['Short', 'Wrong item', 'Damaged', 'Warranty claim', 'Other'];
 const issuePill = s => `<span class="pill ${s === 'Resolved' ? 'green' : s === 'Open' ? 'red' : 'amber'}">${esc(s)}</span>`;
+const issuePart = x => { const l = D.line.get(x.order_line_id); return l ? l.part_id : x.part_id || null; };
 function partCell(pid, used) {
   const others = otherNos(pid);
   const usedNote = used && lc(used) !== lc(mainNo(pid)) ? `<div class="alias">as ${esc(used)}</div>` : '';
@@ -284,15 +298,40 @@ function matchesPart(pid, q) {
   return (D.numbers.get(pid) || []).some(n => lc(n.number).includes(q) || lc(n.number).includes(q2)) || lc(partDesc(pid)).includes(q);
 }
 
+
+// ───────────────────────── notes (a thread on an order line or a part) ─────────────────────────
+const lineNotes = id => D.notesByLine.get(id) || [];
+const partNotes = pid => D.notesByPart.get(pid) || [];
+const partNoteCount = pid => partNotes(pid).length + sum(D.linesByPart.get(pid) || [], l => lineNotes(l.id).length);
+const bubble = (n, title = 'notes') => n ? `<span class="bubble" title="${n} ${title}">${ICON.note}${n}</span>` : '';
+function fmtWhen(ts) { const d = new Date(ts); return `${fmtD(ts)} ${d.toTimeString().slice(0, 5)}`; }
+function noteList(notes, showWhere) {
+  if (!notes.length) return '<div class="small note-empty">No notes yet.</div>';
+  return notes.map(n => {
+    const l = n.order_line_id && D.line.get(n.order_line_id);
+    const where = showWhere && l ? `<a href="#/orders/${l.order_id}">${esc(orderName(l.order_id))}</a> · ` : (showWhere && n.part_id ? 'Part note · ' : '');
+    return `<div class="note"><div class="note-meta">${where}${esc((n.who || '').split('@')[0] || 'someone')} · ${fmtWhen(n.created_at)}<button class="iconbtn danger" title="Delete note" data-act="deleteNote" data-id="${n.id}">${ICON.trash}</button></div><div class="note-body">${esc(n.body)}</div></div>`;
+  }).join('');
+}
+function noteThread(kind, id) {
+  if (!hasNotes) return '<p class="small">Notes switch on once <code>supabase/fixes/2026-11-25-notes-warranty.sql</code> has been run.</p>';
+  const notes = kind === 'line' ? lineNotes(id) : partNotes(id);
+  return `<div class="thread" data-thread="${kind}:${id}"><div class="thread-list">${noteList(notes)}</div>
+    <div class="note-add"><textarea placeholder="Add a note: who you chased, what was agreed, what went wrong…" rows="2"></textarea><button class="btn small primary" data-act="addNote" data-kind="${kind}" data-id="${id}">Add note</button></div></div>`;
+}
+function refreshThreads() {
+  $$('[data-thread]').forEach(el => { const [k, id] = el.dataset.thread.split(':'); $('.thread-list', el).innerHTML = noteList(k === 'line' ? lineNotes(id) : partNotes(id)); });
+}
+
 // ───────────────────────── routing ─────────────────────────
 const NAV = [
-  ['outstanding', 'Outstanding', 'out'], ['orders', 'Orders', 'box'], ['deliveries', 'Deliveries', 'truck'],
-  ['issues', 'Problems', 'alert'], ['invoices', 'Invoices', 'bill'], ['compare', 'Shipping check', 'check'], ['sep'], ['parts', 'Parts', 'tag'],
+  ['home', 'Home', 'home'], ['outstanding', 'Outstanding', 'out'], ['orders', 'Orders', 'box'], ['deliveries', 'Deliveries', 'truck'],
+  ['issues', 'Problems & claims', 'alert'], ['invoices', 'Invoices', 'bill'], ['compare', 'Shipping check', 'check'], ['sep'], ['parts', 'Parts', 'tag'],
   ['documents', 'Documents', 'file'], ['history', 'History', 'clock'],
 ];
 const ui = { compare: null, q: '', outSort: 'oldest', outMode: settings.home === 'line' ? 'line' : 'part', urgentOnly: false, orderFilter: 'open', showArchived: false, issueFilter: 'open', sort: {} };
 let exportable = null;   // {name, cols, rows} of the table on screen
-function route() { const p = location.hash.replace(/^#\/?/, '').split('/'); return { view: p[0] || 'outstanding', id: p[1] || null, sub: p[2] || null }; }
+function route() { const p = location.hash.replace(/^#\/?/, '').split('/'); return { view: p[0] || 'home', id: p[1] || null, sub: p[2] || null }; }
 const go = h => { location.hash = h; };
 
 function renderNav() {
@@ -310,7 +349,7 @@ function render() {
   renderNav();
   const r = route();
   exportable = null;
-  const V = VIEWS[r.view] || VIEWS.outstanding;
+  const V = VIEWS[r.view] || VIEWS.home;
   const content = $('#content');
   const keepScroll = render._last === location.hash ? content.scrollTop : 0;
   const out = V(r);
@@ -370,6 +409,66 @@ function table(id, cols, rows, opts = {}) {
 // ───────────────────────── views ─────────────────────────
 const VIEWS = {};
 
+VIEWS.home = () => {
+  const today = todayISO();
+  const openLines = db.order_lines.filter(l => D.L.get(l.id).outstanding > 0);
+  const openIssues = db.issues.filter(i => i.status !== 'Resolved');
+  const claims = openIssues.filter(i => i.kind === 'Warranty claim');
+  const delivProblems = openIssues.filter(i => i.kind !== 'Warranty claim');
+  const late = openLines.filter(l => D.L.get(l.id).late);
+  const urgentByPart = group(openLines.filter(l => l.urgent), 'part_id');
+  const urgentNotStaged = [...urgentByPart].filter(([, ls]) => !sum(ls, l => D.L.get(l.id).staged));
+  const badInvoices = db.invoices.filter(x => invoiceChecks(x).some(f => f[0] === 'red'));
+  const openOrders = db.orders.filter(o => D.O.get(o.id).outstanding > 0);
+  const noSO = hasSO ? openOrders.filter(o => !o.wet_so) : [];
+  const weekAgo = new Date(Date.now() - 7 * 864e5).toISOString();
+  const recentNotes = db.notes.filter(n => n.created_at > weekAgo);
+
+  const need = [
+    [delivProblems.length, 'delivery problem', 'delivery problems', 'Wrong, short or damaged items still open', '#/issues', 'red'],
+    [claims.length, 'warranty claim', 'warranty claims', 'Failed parts waiting on a claim or replacement', '#/issues', 'red'],
+    [late.length, 'line past its expected date', 'lines past their expected date', 'Promised dates that have gone by', '#/outstanding', 'red'],
+    ...(hasStaged ? [[urgentNotStaged.length, 'urgent part with nothing staged', 'urgent parts with nothing staged', 'Urgent, and shipping has none ready', '#/outstanding', 'amber']] : []),
+    [badInvoices.length, 'invoice that fails a check', 'invoices that fail a check', 'Against the PO or the delivery note', '#/invoices', 'red'],
+    ...(hasSO ? [[noSO.length, 'open PO with no WET SO number', 'open POs with no WET SO number', 'Shipping may not have it on an order', '#/orders', 'amber']] : []),
+  ].filter(x => x[0] > 0);
+  const needHtml = need.length ? need.map(([n, one, many, why, href, tone]) => `<a class="need ${tone}" href="${href}"><b>${n}</b><span><span class="need-what">${n === 1 ? one : many}</span><span class="small">${why}</span></span></a>`).join('')
+    : '<div class="calm">Nothing needs you right now.</div>';
+
+  const stagedByOrder = group(openLines.filter(l => D.L.get(l.id).staged > 0), 'order_id');
+  const ready = [...stagedByOrder].map(([oid, ls]) => ({ o: D.order.get(oid), ls, units: sum(ls, l => D.L.get(l.id).staged) })).sort((a, b) => b.units - a.units);
+  const readyHtml = !hasStaged ? '<p class="small">Shows what shipping has staged once <code>2026-11-25-staged.sql</code> has been run.</p>'
+    : ready.length ? ready.map(r => `<a class="ready" href="#/orders/${r.o.id}"><span><b>${esc(r.o.po_number)}</b>${r.o.wet_so ? ` <span class="small">SO ${esc(r.o.wet_so)}</span>` : ''}<span class="small block">${r.ls.slice(0, 3).map(l => `${esc(mainNo(l.part_id))} ×${fmtN(D.L.get(l.id).staged)}`).join(', ')}${r.ls.length > 3 ? ` +${r.ls.length - 3} more` : ''}</span></span><span class="staged">${fmtN(r.units)}</span></a>`).join('')
+    : '<div class="calm">Nothing staged at the moment.</div>';
+
+  const poRows = openOrders.map(o => ({ o, ...D.O.get(o.id), age: daysSince(o.po_date) })).sort((a, b) => (b.age || 0) - (a.age || 0));
+  const poHtml = poRows.map(r => `<a class="porow" href="#/orders/${r.o.id}"><span class="po"><b>${esc(r.o.po_number || '–')}</b><span class="small">${esc(r.o.title)}</span></span>
+      <span class="bar"><i style="width:${Math.round(r.pct * 100)}%"></i></span><span class="num"><b>${fmtN(r.outstanding)}</b> owed</span><span class="num small">${r.age ?? ''} d</span></a>`).join('');
+
+  const oldest = openLines.map(l => ({ l, ...D.L.get(l.id) })).sort((a, b) => (b.age || 0) - (a.age || 0) || b.outstanding - a.outstanding).slice(0, 6);
+  const oldestHtml = oldest.map(r => `<a class="oldrow" href="#/orders/${r.l.order_id}"><span><span class="tag sm">${esc(mainNo(r.l.part_id))}</span> ${esc(partDesc(r.l.part_id))}</span><span class="small">${esc(orderName(r.l.order_id))}</span><span class="num"><b>${fmtN(r.outstanding)}</b></span><span class="num small">${r.age} d</span></a>`).join('');
+
+  if (!historyCache) Promise.resolve(sb.from('history').select('*').order('at', { ascending: false }).limit(300)).then(({ data, error }) => { historyCache = error ? { error } : data; if (route().view === 'home') render(); });
+  const NAMES = { parts: 'part', part_numbers: 'part number', orders: 'order', order_lines: 'order line', deliveries: 'delivery', delivery_lines: 'delivered item', issues: 'problem', invoices: 'invoice', documents: 'document', notes: 'note' };
+  const what = h => { const r = h.new || h.old || {}; return r.po_number || r.dn_number || r.invoice_no || r.number || (r.part_id ? mainNo(r.part_id) : '') || r.title || r.name || (r.body ? '“' + r.body.slice(0, 40) + (r.body.length > 40 ? '…' : '') + '”' : '') || ''; };
+  const actHtml = !historyCache ? '<div class="small">Loading…</div>' : historyCache.error ? '' : historyCache.slice(0, 8).map(h => `<div class="act"><span class="small">${fmtWhen(h.at)}</span><span>${h.action === 'insert' ? 'Added' : h.action === 'delete' ? 'Deleted' : 'Edited'} ${NAMES[h.tbl] || h.tbl} <b>${esc(what(h))}</b></span></div>`).join('') + '<a class="small" href="#/history">All changes</a>';
+
+  const units = sum(openLines, l => D.L.get(l.id).outstanding);
+  const stagedUnits = sum(openLines, l => D.L.get(l.id).staged);
+  const hour = new Date().getHours();
+  const hello = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+  const lead = `<div class="lead"><div class="lead-big"><b>${fmtN(units)}</b> units still owed to the client</div>
+    <div class="small">${new Set(openLines.map(l => l.part_id)).size} parts across ${openOrders.length} POs${hasStaged ? ` · <b>${fmtN(stagedUnits)}</b> staged and ready to ship` : ''} · oldest open PO ${Math.max(0, ...openLines.map(l => D.L.get(l.id).age || 0))} days</div></div>`;
+  const html = lead + `<div class="dash">
+    <section class="panel"><h2>Needs attention</h2>${needHtml}</section>
+    <section class="panel"><h2>Ready to ship <a class="small" href="#/outstanding">by part</a></h2>${readyHtml}</section>
+    <section class="panel wide"><h2>Open POs <span class="small">oldest first · shipped vs ordered</span></h2>${poHtml || '<div class="calm">No open POs.</div>'}</section>
+    <section class="panel"><h2>Waiting longest</h2>${oldestHtml || '<div class="calm">Nothing waiting.</div>'}</section>
+    <section class="panel"><h2>Recent activity ${recentNotes.length ? `<span class="small">${recentNotes.length} note${recentNotes.length > 1 ? 's' : ''} this week</span>` : ''}</h2>${actHtml}</section>
+  </div>`;
+  return { title: hello, sub: fmtD(today), html };
+};
+
 VIEWS.outstanding = () => {
   const q = lc(ui.q);
   const open = db.order_lines.filter(l => D.L.get(l.id).outstanding > 0);
@@ -420,7 +519,7 @@ VIEWS.outstanding = () => {
       <div class="bl bl-head">${hcol('number', 'Part')}${hcol('desc', 'Description')}<span>On POs</span>${hasStaged ? hcol('staged', 'Staged', 'r') : ''}${hcol('most', 'Owed', 'r')}${hcol('oldest', 'Days', 'r')}</div>
       ${rows.map(r => `<div class="bl ${r.urgent ? 'urgent' : ''}" data-go="#/parts/${r.pid}">
         <div class="bl-part"><span class="tag">${esc(r.number)}</span>${otherNos(r.pid).length ? `<span class="aka">${otherNos(r.pid).map(esc).join(' · ')}</span>` : ''}</div>
-        <div class="bl-desc" title="${esc(r.desc)}">${esc(r.desc)}</div>
+        <div class="bl-desc" title="${esc(r.desc)}">${bubble(partNoteCount(r.pid))}${esc(r.desc)}</div>
         <div class="bl-pos">${r.lines.slice(0, r.lines.length > 3 ? 2 : 3).map(l => { const o = D.order.get(l.order_id) || {}; const c = D.L.get(l.id); return `<a class="chip ${l.urgent ? 'u' : ''}" href="#/orders/${l.order_id}" data-stop title="${esc(o.title)}${o.wet_so ? ' · WET SO ' + esc(o.wet_so) : ''}">${esc(o.po_number || o.title)} <b>${fmtN(c.outstanding)}</b></a>`; }).join('')}${r.lines.length > 3 ? `<span class="chip more" title="${esc(r.lines.slice(2).map(l => orderName(l.order_id) + ': ' + fmtN(D.L.get(l.id).outstanding)).join(', '))}">+${r.lines.length - 2} more</span>` : ''}</div>
         ${hasStaged ? `<div class="bl-num">${r.staged ? `<span class="staged" title="Shipping has these staged, ready to ship">${fmtN(r.staged)}</span>` : ''}</div>` : ''}
         <div class="bl-num bl-owed" title="${r.urgent ? 'Urgent. ' : ''}${fmtN(r.shipped)} of ${fmtN(r.ordered)} shipped so far">${fmtN(r.outstanding)}</div>
@@ -494,7 +593,7 @@ function orderDetail(id) {
   const lineRows = lines.map(l => {
     const c = D.L.get(l.id);
     return `<tr class="click ${l.cancelled ? 'muted' : ''}" data-act="editLine" data-id="${l.id}" title="Click to edit">
-      <td>${partCell(l.part_id, l.ordered_as)}<div class="small">${esc(partDesc(l.part_id))}</div></td>
+      <td>${partCell(l.part_id, l.ordered_as)} ${bubble(lineNotes(l.id).length)}<div class="small">${esc(partDesc(l.part_id))}</div></td>
       <td class="num">${fmtN(l.qty)}</td>
       <td class="num">${fmtN(c.shipped)}${+l.shipped_before ? `<div class="alias" title="Shipped before tracking began">${fmtN(l.shipped_before)} earlier</div>` : ''}</td>
       <td class="num"><b>${fmtN(c.outstanding)}</b>${c.openIssues ? ` <span class="flag" title="Open delivery problem">!</span>` : ''}</td>
@@ -514,7 +613,7 @@ function orderDetail(id) {
   };
   const linesHtml = `<div class="section-title"><h2>Lines</h2><span class="small">${lines.length} · click a line to edit it</span><span class="spacer"></span>
       <button class="btn small" data-act="pasteLines" data-id="${id}">Paste lines</button><button class="btn small primary" data-act="addLine" data-id="${id}">${ICON.plus}Add line</button></div>
-    ${lines.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th style="min-width:260px">Part</th><th class="num">Ordered</th><th class="num">Shipped</th><th class="num">Owed</th>${hasStaged ? '<th class="num">Staged</th>' : ''}<th></th><th>Expected</th><th class="num">Unit price</th><th>Notes</th></tr></thead><tbody>${lineRows}</tbody>
+    ${lines.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th style="min-width:260px">Part</th><th class="num">Ordered</th><th class="num">Shipped</th><th class="num">Owed</th>${hasStaged ? '<th class="num">Staged</th>' : ''}<th></th><th>Expected</th><th class="num">Unit price</th><th>Remark</th></tr></thead><tbody>${lineRows}</tbody>
       <tfoot><tr><td>Total</td><td class="num">${fmtN(st.ordered)}</td><td class="num">${fmtN(st.shipped)}</td><td class="num">${fmtN(st.outstanding)}</td>${hasStaged ? `<td class="num">${fmtN(sum(lines, l => D.L.get(l.id).staged)) || ''}</td>` : ''}<td colspan="4"></td></tr></tfoot></table></div>` : '<div class="tbl-wrap"><div class="empty">No lines yet. Add them one by one, or paste a list.</div></div>'}`;
   const delHtml = `<div class="section-title"><h2>Deliveries</h2><span class="spacer"></span><button class="btn small primary" data-act="newDelivery" data-order="${id}">${ICON.plus}Record delivery</button></div>` +
     (dels.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Delivery note</th><th>Shipped</th><th>Received</th><th class="num">Units</th><th>Tracking</th><th>Problems</th></tr></thead><tbody>${dels.map(d => {
@@ -563,7 +662,7 @@ function deliveryDetail(id) {
   const itemRows = dls.map(x => {
     const l = D.line.get(x.order_line_id);
     return `<tr class="click" data-act="editDLine" data-id="${x.id}" title="Click to edit">
-      <td>${partCell(x.part_id, x.shipped_as)}<div class="small">${esc(partDesc(x.part_id))}</div></td>
+      <td>${partCell(x.part_id, x.shipped_as)} ${l ? bubble(lineNotes(l.id).length) : ''}<div class="small">${esc(partDesc(x.part_id))}</div></td>
       <td class="num"><b>${fmtN(x.qty)}</b></td>
       <td>${l ? `${esc(orderName(l.order_id))} <span class="small">ordered ${fmtN(l.qty)} as ${esc(l.ordered_as || mainNo(l.part_id))}</span>` : '<span class="small">Not matched to an order line</span>'}</td>
       <td class="small">${esc(x.notes || '')}</td></tr>`;
@@ -590,26 +689,25 @@ function deliveryDetail(id) {
 
 function issuesTable(rows, withExport = true) {
   return table('issues' + (withExport ? '' : '-sub'), [
-    { key: 'status', label: 'Status', html: x => `<select data-edit="issues:${x.id}:status">${['Open', 'Replacement requested', 'Resolved'].map(s => `<option ${s === x.status ? 'selected' : ''}>${s}</option>`).join('')}</select>`, text: x => x.status },
-    { key: 'kind', label: 'Type', text: x => x.kind },
-    { key: 'dn', label: 'Delivery', sort: x => (D.delivery.get(x.delivery_id) || {}).dn_number, html: x => x.delivery_id ? `<a href="#/deliveries/${x.delivery_id}">${esc((D.delivery.get(x.delivery_id) || {}).dn_number)}</a>` : '', text: x => (D.delivery.get(x.delivery_id) || {}).dn_number || '' },
-    { key: 'po', label: 'PO', sort: x => orderName((D.line.get(x.order_line_id) || D.delivery.get(x.delivery_id) || {}).order_id), text: x => orderName((D.line.get(x.order_line_id) || D.delivery.get(x.delivery_id) || {}).order_id) },
-    { key: 'part', label: 'Part', html: x => { const l = D.line.get(x.order_line_id); return l ? partCell(l.part_id) : '–'; }, text: x => { const l = D.line.get(x.order_line_id); return l ? mainNo(l.part_id) : ''; } },
+    { key: 'status', label: 'Status', html: x => `<select data-edit="issues:${x.id}:status">${[...new Set([...ISSUE_STATUS, x.status])].map(s => `<option ${s === x.status ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>`, text: x => x.status },
+    { key: 'kind', label: 'Type', html: x => x.kind === 'Warranty claim' ? `<span class="pill blue">${ICON.shield} Warranty</span>` : esc(x.kind), text: x => x.kind },
+    { key: 'part', label: 'Part', sort: x => issuePart(x) ? mainNo(issuePart(x)) : '', html: x => issuePart(x) ? `<a href="#/parts/${issuePart(x)}" data-stop>${partCell(issuePart(x))}</a><div class="small">${esc(partDesc(issuePart(x)))}</div>` : '–', text: x => issuePart(x) ? mainNo(issuePart(x)) : '' },
     { key: 'qty', label: 'Qty', num: true, text: x => fmtN(x.qty) },
     { key: 'description', label: 'What happened', cls: 'desc', text: x => x.description || '' },
-    { key: 'resolved_date', label: 'Resolved', html: x => `<span class="nowrap">${fmtD(x.resolved_date)}</span>`, text: x => x.resolved_date || '' },
+    { key: 'ref', label: 'Delivery / claim', sort: x => (D.delivery.get(x.delivery_id) || {}).dn_number || x.claim_ref, html: x => [x.delivery_id ? `<a href="#/deliveries/${x.delivery_id}">${esc((D.delivery.get(x.delivery_id) || {}).dn_number)}</a>` : '', x.claim_ref ? `<span class="small">Claim ${esc(x.claim_ref)}</span>` : '', x.failed_date ? `<span class="small">Failed ${fmtD(x.failed_date)}</span>` : ''].filter(Boolean).join('<br>'), text: x => [(D.delivery.get(x.delivery_id) || {}).dn_number, x.claim_ref].filter(Boolean).join(' / ') },
+    { key: 'po', label: 'PO', sort: x => orderName((D.line.get(x.order_line_id) || D.delivery.get(x.delivery_id) || {}).order_id), text: x => orderName((D.line.get(x.order_line_id) || D.delivery.get(x.delivery_id) || {}).order_id) },
+    { key: 'age', label: 'Open (days)', num: true, sort: x => x.status === 'Resolved' ? -1 : daysSince(x.created_at), text: x => x.status === 'Resolved' ? '' : daysSince(x.created_at) },
     { key: 'a', label: '', nosort: true, html: x => `<button class="iconbtn" title="Edit" data-act="editIssue" data-id="${x.id}">${ICON.edit}</button><button class="iconbtn danger" title="Delete" data-act="deleteIssue" data-id="${x.id}">${ICON.trash}</button>`, text: () => '' },
-  ], rows, { export: withExport, name: 'Delivery problems', empty: 'No problems recorded.' });
+  ], rows, { export: withExport, name: 'Problems and claims', empty: 'Nothing recorded.' });
 }
-
 VIEWS.issues = () => {
   const q = lc(ui.q);
   let rows = [...db.issues];
   if (ui.issueFilter === 'open') rows = rows.filter(i => i.status !== 'Resolved');
-  if (q) rows = rows.filter(i => [i.description, i.kind, (D.delivery.get(i.delivery_id) || {}).dn_number].some(v => lc(v).includes(q)) || (D.line.get(i.order_line_id) && matchesPart(D.line.get(i.order_line_id).part_id, q)));
+  if (q) rows = rows.filter(i => [i.description, i.kind, (D.delivery.get(i.delivery_id) || {}).dn_number].some(v => lc(v).includes(q)) || (issuePart(i) && matchesPart(issuePart(i), q)) || lc(i.claim_ref).includes(q));
   rows.sort((a, b) => (a.status === 'Resolved') - (b.status === 'Resolved') || b.created_at.localeCompare(a.created_at));
-  const tools = `<button class="btn primary" data-act="newIssue">${ICON.plus}Report problem</button><div class="seg"><button data-act="issueFilter" data-v="open" aria-pressed="${ui.issueFilter === 'open'}">Not resolved</button><button data-act="issueFilter" data-v="all" aria-pressed="${ui.issueFilter === 'all'}">All</button></div>`;
-  return { title: 'Problems', sub: 'Short, wrong or damaged items on deliveries', tools, html: issuesTable(rows) };
+  const tools = `<button class="btn primary" data-act="newIssue">${ICON.plus}Report delivery problem</button><button class="btn" data-act="newClaim">${ICON.shield}New warranty claim</button><div class="seg"><button data-act="issueFilter" data-v="open" aria-pressed="${ui.issueFilter === 'open'}">Not resolved</button><button data-act="issueFilter" data-v="all" aria-pressed="${ui.issueFilter === 'all'}">All</button></div>`;
+  return { title: 'Problems & claims', sub: 'Wrong, short or damaged deliveries, and parts that failed under warranty', tools, html: issuesTable(rows) };
 };
 
 function invoiceChecks(inv) {
@@ -697,7 +795,11 @@ function partDetail(id) {
     { key: 'outstanding', label: 'Outstanding', num: true, html: r => `<b>${fmtN(r.outstanding)}</b>`, text: r => r.outstanding },
     { key: 'urgent', label: 'Urgent', sort: r => +r.l.urgent, html: r => r.l.urgent ? '<span class="pill red">Urgent</span>' : '', text: r => r.l.urgent ? 'Urgent' : '' },
   ], ls, { href: r => '#/orders/' + r.l.order_id, name: mainNo(id) + ' orders', empty: 'Not on any order.' });
-  return { title: mainNo(id), sub: `<a href="#/parts">Parts</a> › ${esc(p.description)}`, html: header + numsHtml + ordersHtml };
+  const pIssues = db.issues.filter(x => issuePart(x) === id);
+  const issuesHtml = `<div class="section-title"><h2>Problems & warranty claims</h2><span class="spacer"></span><button class="btn small" data-act="newClaim" data-part="${id}">${ICON.shield}New warranty claim</button></div>` + (pIssues.length ? issuesTable(pIssues, false) : '<div class="tbl-wrap"><div class="empty">None recorded for this part.</div></div>');
+  const lineNoteRows = (D.linesByPart.get(id) || []).flatMap(l => lineNotes(l.id));
+  const notesHtml = `<div class="section-title"><h2>Notes</h2><span class="small">Notes on this part, plus notes on its order lines</span></div><div class="card">${noteThread('part', id)}${lineNoteRows.length ? `<h3 class="thread-title">On its order lines</h3>${noteList(lineNoteRows, true)}` : ''}</div>`;
+  return { title: mainNo(id), sub: `<a href="#/parts">Parts</a> › ${esc(p.description)}`, html: header + notesHtml + numsHtml + ordersHtml + issuesHtml };
 }
 
 function docsTable(rows, withExport = true) {
@@ -751,8 +853,8 @@ function openSheet({ title, body, foot, wide, onMount }) {
 function closeSheet() { const bg = $('#sheet'); bg.hidden = true; bg.innerHTML = ''; }
 
 // fields: [{k, label, type, options, full, required, placeholder}]
-function formSheet({ title, intro, fields, values = {}, saveLabel = 'Save', onSave, wide, extraFoot = '' }) {
-  fields = fields.filter(f => (!f.needsSO || hasSO) && (!f.needsStaged || hasStaged));
+function formSheet({ title, intro, fields, values = {}, saveLabel = 'Save', onSave, wide, extraFoot = '', after = '', keepOpen = false }) {
+  fields = fields.filter(f => (!f.needsSO || hasSO) && (!f.needsStaged || hasStaged) && (!f.needsNotes || hasNotes));
   const input = f => {
     const v = values[f.k] ?? f.default ?? '';
     if (f.type === 'textarea') return `<textarea name="${f.k}" placeholder="${esc(f.placeholder || '')}">${esc(v)}</textarea>`;
@@ -762,7 +864,7 @@ function formSheet({ title, intro, fields, values = {}, saveLabel = 'Save', onSa
   };
   openSheet({
     title, wide,
-    body: `${intro ? `<p>${intro}</p>` : ''}<form class="form" id="sheetForm" autocomplete="off">${fields.map(f => f.type === 'check' ? `<label class="check ${f.full ? 'full' : ''}">${input(f)}${esc(f.label)}</label>` : `<label class="${f.full ? 'full' : ''}">${esc(f.label)}${f.required ? ' *' : ''}${input(f)}</label>`).join('')}<button type="submit" hidden></button></form><div class="err" id="sheetErr"></div>`,
+    body: `${intro ? `<p>${intro}</p>` : ''}<form class="form" id="sheetForm" autocomplete="off">${fields.map(f => f.type === 'check' ? `<label class="check ${f.full ? 'full' : ''}">${input(f)}${esc(f.label)}</label>` : `<label class="${f.full ? 'full' : ''}">${esc(f.label)}${f.required ? ' *' : ''}${input(f)}</label>`).join('')}<button type="submit" hidden></button></form><div class="err" id="sheetErr"></div>${after}`,
     foot: `${extraFoot}<span class="spacer"></span><button class="btn" data-close>Cancel</button><button class="btn primary" id="sheetSave">${esc(saveLabel)}</button>`,
     onMount: el => {
       const form = $('#sheetForm', el);
@@ -888,16 +990,25 @@ const docFields = () => [
   { k: 'doc_type', label: 'Type', type: 'select', options: ['PO', 'Quote', 'Delivery note', 'Invoice', 'Photo', 'Other'] },
   { k: 'order_id', label: 'Order', type: 'select', options: orderOptions() }, { k: 'delivery_id', label: 'Delivery', type: 'select', options: deliveryOptions() },
 ];
-function issueFields(deliveryId) {
+function issueFields(deliveryId, warranty) {
   const d = D.delivery.get(deliveryId);
   const lines = d && d.order_id ? (D.linesByOrder.get(d.order_id) || []) : db.order_lines;
   return [
-    ...(deliveryId ? [] : [{ k: 'delivery_id', label: 'Delivery note', type: 'select', options: deliveryOptions() }]),
-    { k: 'order_line_id', label: 'Which order line', type: 'select', full: true, options: [['', '— not specific —'], ...lines.map(l => [l.id, `${orderName(l.order_id)} · ${mainNo(l.part_id)} ${partDesc(l.part_id)} (ordered ${fmtN(l.qty)})`])] },
-    { k: 'kind', label: 'Type', type: 'select', options: ['Short', 'Wrong item', 'Damaged', 'Other'] }, { k: 'qty', label: 'Quantity affected', type: 'number' },
+    ...(deliveryId || warranty ? [] : [{ k: 'delivery_id', label: 'Delivery note', type: 'select', options: deliveryOptions() }]),
+    { k: 'order_line_id', label: warranty ? 'Which order line it came on (if known)' : 'Which order line', type: 'select', full: true, options: [['', '— not specific —'], ...lines.map(l => [l.id, `${orderName(l.order_id)} · ${mainNo(l.part_id)} ${partDesc(l.part_id)} (ordered ${fmtN(l.qty)})`])] },
+    ...(warranty ? [{ k: 'part_no', label: 'Part number (if no order line)', list: db.part_numbers.map(n => n.number), needsNotes: true }] : []),
+    { k: 'kind', label: 'Type', type: 'select', options: hasNotes ? ISSUE_KINDS : ISSUE_KINDS.filter(k => k !== 'Warranty claim') }, { k: 'qty', label: 'Quantity affected', type: 'number' },
+    { k: 'failed_date', label: 'Failed on (warranty)', type: 'date', needsNotes: true }, { k: 'claim_ref', label: 'Claim / RMA number', needsNotes: true },
     { k: 'description', label: 'What happened', type: 'textarea', full: true },
-    { k: 'status', label: 'Status', type: 'select', options: ['Open', 'Replacement requested', 'Resolved'] }, { k: 'resolved_date', label: 'Resolved on', type: 'date' },
+    { k: 'status', label: 'Status', type: 'select', options: ISSUE_STATUS }, { k: 'resolved_date', label: 'Resolved on', type: 'date' },
   ];
+}
+function issueSave(v, base = {}) {
+  const out = { ...base, ...v };
+  if ('part_no' in out) { const pid = out.part_no ? partIdFor(out.part_no) : null; if (out.part_no && !pid) throw new Error(`Part number ${out.part_no} isn’t in the parts list.`); delete out.part_no; out.part_id = pid || (out.order_line_id ? (D.line.get(out.order_line_id) || {}).part_id : null) || null; }
+  else if (hasNotes && out.order_line_id) out.part_id = (D.line.get(out.order_line_id) || {}).part_id || null;
+  out.resolved_date = out.status === 'Resolved' ? (out.resolved_date || todayISO()) : out.resolved_date;
+  return out;
 }
 
 // ───────────────────────── actions ─────────────────────────
@@ -936,8 +1047,8 @@ const ACTIONS = {
         { k: 'shipped_before', label: 'Shipped before tracking began', type: 'number' }, { k: 'expected_date', label: 'Expected', type: 'date' },
         { k: 'staged_qty', label: 'Staged by shipping (ready to ship)', type: 'number', needsStaged: true }, { k: 'unit_price', label: 'Unit price', type: 'number' },
         { k: 'urgent', label: 'Urgent', type: 'check' },
-        { k: 'cancelled', label: 'Cancelled (stop counting it as owed)', type: 'check' }, { k: 'notes', label: 'Notes', type: 'textarea', full: true }],
-      values: l, extraFoot: `<button class="btn" data-act="changeLinePart" data-id="${l.id}">${ICON.swap}Change part</button><button class="btn danger" data-act="deleteLine" data-id="${l.id}">${ICON.trash}Delete line</button>`,
+        { k: 'cancelled', label: 'Cancelled (stop counting it as owed)', type: 'check' }, { k: 'notes', label: 'Remark (short, shows in the lines table)', full: true }],
+      values: l, wide: true, after: `<h3 class="thread-title">${ICON.note} Notes on this line</h3>${noteThread('line', l.id)}`, extraFoot: `<button class="btn" data-act="changeLinePart" data-id="${l.id}">${ICON.swap}Change part</button><button class="btn danger" data-act="deleteLine" data-id="${l.id}">${ICON.trash}Delete line</button>`,
       onSave: v => upd('order_lines', l.id, { ...v, qty: v.qty ?? 0, shipped_before: v.shipped_before ?? 0, ...(hasStaged && v.staged_qty !== (l.staged_qty == null ? null : +l.staged_qty) ? { staged_date: v.staged_qty ? todayISO() : null } : {}) }) });
   },
   editDLine: b => {
@@ -955,6 +1066,15 @@ const ACTIONS = {
   setDensity: b => { settings.density = b.dataset.v; saveSettings(); applyTheme(); settingsSheet(); },
   setHome: b => { settings.home = b.dataset.v; ui.outMode = b.dataset.v; saveSettings(); render(); settingsSheet(); },
   backup: () => backupAll(),
+  addNote: async b => {
+    const box = b.closest('.note-add').querySelector('textarea'); const body = box.value.trim();
+    if (!body) return box.focus();
+    b.disabled = true;
+    try { await ins('notes', b.dataset.kind === 'line' ? { order_line_id: b.dataset.id, body } : { part_id: b.dataset.id, body }); box.value = ''; refreshThreads(); render(); toast('Note added'); }
+    catch (e) { toast(friendlyError(e), true); }
+    b.disabled = false;
+  },
+  deleteNote: async b => { try { await del('notes', b.dataset.id); refreshThreads(); render(); } catch (e) { toast(friendlyError(e), true); } },
   goHistory: () => { closeSheet(); go('#/history'); },
   changeLinePart: async b => { closeSheet(); const l = D.line.get(b.dataset.id); const pick = await pickPart('Change part on this line', { exclude: l.part_id }); if (pick) act(() => upd('order_lines', l.id, { part_id: pick.part_id, ordered_as: l.ordered_as || pick.number }), 'Part changed'); },
   deleteLine: b => { closeSheet(); const l = D.line.get(b.dataset.id); const dl = (D.dlByLine.get(l.id) || []).length;
@@ -977,9 +1097,13 @@ const ACTIONS = {
   deleteDLine: b => { closeSheet(); act(() => del('delivery_lines', b.dataset.id), 'Removed'); },
 
   newIssue: b => formSheet({ title: 'Report a problem', fields: issueFields(b.dataset.delivery), values: { status: 'Open', kind: 'Short' },
-    onSave: v => ins('issues', { ...v, delivery_id: b.dataset.delivery || v.delivery_id, resolved_date: v.status === 'Resolved' ? (v.resolved_date || todayISO()) : v.resolved_date }) }),
-  editIssue: b => { const x = db.issues.find(i => i.id === b.dataset.id); formSheet({ title: 'Edit problem', fields: issueFields(x.delivery_id), values: x,
-    onSave: v => upd('issues', x.id, { ...v, resolved_date: v.status === 'Resolved' ? (v.resolved_date || todayISO()) : v.resolved_date }) }); },
+    onSave: v => ins('issues', issueSave(v, { delivery_id: b.dataset.delivery || v.delivery_id || null })) }),
+  newClaim: b => { if (!hasNotes) return toast('Run supabase/fixes/2026-11-25-notes-warranty.sql to switch on warranty claims.', true);
+    formSheet({ title: 'New warranty claim', intro: 'A part that failed in service. Track it until the replacement arrives.', fields: issueFields(null, true), values: { status: 'Open', kind: 'Warranty claim', part_no: b.dataset.part ? mainNo(b.dataset.part) : '', failed_date: todayISO() },
+      onSave: v => ins('issues', issueSave(v)) }); },
+  editIssue: b => { const x = db.issues.find(i => i.id === b.dataset.id); const w = x.kind === 'Warranty claim';
+    formSheet({ title: w ? 'Edit warranty claim' : 'Edit problem', fields: issueFields(x.delivery_id, w), values: { ...x, part_no: x.part_id && !x.order_line_id ? mainNo(x.part_id) : '' },
+      onSave: v => upd('issues', x.id, issueSave(v)) }); },
   deleteIssue: b => confirmSheet('Delete problem?', 'Delete this problem record? If it was sorted out, set it to Resolved instead to keep the history.', 'Delete', () => del('issues', b.dataset.id)),
 
   newInvoice: b => formSheet({ title: 'Add invoice', fields: invoiceFields(), values: { order_id: b.dataset.order || '', currency: 'AED' }, onSave: v => ins('invoices', { ...v, currency: v.currency || 'AED' }) }),
