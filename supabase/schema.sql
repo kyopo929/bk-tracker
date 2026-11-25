@@ -51,6 +51,7 @@ create table if not exists public.orders (
   quote_ref text,
   quote_sent date,
   po_number text,
+  wet_so text,                     -- WET sales order number (shipping's reference)
   po_date date,
   expected_date date,
   closed boolean not null default false,   -- tick to close an order early (rest cancelled)
@@ -58,6 +59,7 @@ create table if not exists public.orders (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+alter table public.orders add column if not exists wet_so text;
 create unique index if not exists orders_po on public.orders (lower(po_number)) where po_number is not null and po_number <> '';
 
 create table if not exists public.order_lines (

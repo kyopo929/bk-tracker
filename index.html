@@ -13,34 +13,16 @@
 <style>
 /* Same family as Jino's Tally: nav rail on the left, big display title, quiet tables. Accent: fountain teal. */
 :root {
-  --bg: #eef1f3;
-  --surface: #ffffff;
-  --ink: #17202b;
-  --muted: #667085;
-  --line: #dfe3ea;
-  --accent: #0f6f7c;
-  --accent-soft: #e2f1f2;
-  --warn: #b86e00;
-  --warn-soft: #fdf1dc;
-  --danger: #c4372c;
-  --danger-soft: #fbe7e5;
-  --ok: #1f8a4c;
-  --ok-soft: #e3f4ea;
-  --hover: #f3f5f8;
+  /* Fallback (Sand & Teal, light). The real colours come from the theme picked in Settings. */
+  --bg: #ece5d8; --surface: #fffdf8; --side: #f6f1e7; --ink: #221e17; --muted: #6c6553; --line: #ddd3c1;
+  --accent: #0f766e; --accent-soft: #d3ece8; --hover: #f3ede1; --on-accent: #fff;
+  --warn: #a15c00; --warn-soft: #fbeed6; --danger: #c4372c; --danger-soft: #fbe5e2; --ok: #1f7a45; --ok-soft: #dff1e6;
   --shadow: 0 1px 2px rgba(16,24,40,.06), 0 8px 24px rgba(16,24,40,.08);
   --font-display: "Bricolage Grotesque", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
   --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
-  color-scheme: light;
+  --pad-y: 10px;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #10151b; --surface: #171d25; --ink: #e7eaf0; --muted: #949db0; --line: #2a313d;
-    --accent: #5fc2cd; --accent-soft: #15333a; --warn: #f0b43c; --warn-soft: #2e2615;
-    --danger: #ef6b5f; --danger-soft: #3a1c1a; --ok: #5cc98a; --ok-soft: #173024; --hover: #1e2530;
-    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
-    color-scheme: dark;
-  }
-}
+:root[data-density="compact"] { --pad-y: 5px; }
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--ink); font: 14px/1.45 var(--font-body); -webkit-font-smoothing: antialiased; }
@@ -52,17 +34,18 @@ a:hover { text-decoration: underline; }
 svg { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 .app { display: grid; grid-template-columns: 232px 1fr; height: 100%; }
-.side { background: var(--surface); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+.side { background: var(--side, var(--surface)); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 18px 18px 14px; font: 700 19px/1 var(--font-display); letter-spacing: -.01em; }
-.brand-mark { width: 26px; height: 26px; border-radius: 8px; background: var(--accent); color: #fff; display: grid; place-items: center; }
+.brand-mark { width: 26px; height: 26px; border-radius: 8px; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; }
 .brand-mark svg { width: 15px; height: 15px; stroke-width: 2.2; }
 .nav { flex: 1; overflow-y: auto; padding: 4px 8px 12px; }
 .nav a { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 8px; color: var(--ink); text-decoration: none; }
 .nav a:hover { background: var(--hover); }
 .nav a[aria-current="page"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .nav .label { flex: 1; }
-.nav .count { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.nav .count.hot { color: var(--danger); font-weight: 600; }
+.nav .count { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; background: var(--bg); border-radius: 99px; padding: 0 7px; line-height: 18px; }
+.nav .count:empty { display: none; }
+.nav .count.hot { color: var(--danger); background: var(--danger-soft); font-weight: 600; }
 .nav-sep { height: 1px; background: var(--line); margin: 8px 10px; }
 .side-foot { border-top: 1px solid var(--line); padding: 12px 16px 14px; font-size: 12px; color: var(--muted); display: grid; gap: 8px; }
 .side-foot .row { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -81,7 +64,7 @@ kbd { font: 11px var(--font-body); border: 1px solid var(--line); border-bottom-
 
 .btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--surface); padding: 6px 12px; border-radius: 8px; font-weight: 500; white-space: nowrap; }
 .btn:hover { background: var(--hover); }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .btn.primary:hover { filter: brightness(1.08); }
 .btn.danger { color: var(--danger); }
 .btn.small { padding: 3px 9px; font-size: 12.5px; }
@@ -101,8 +84,8 @@ kbd { font: 11px var(--font-body); border: 1px solid var(--line); border-bottom-
 
 .tbl-wrap { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: auto; }
 table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
-.tbl th { text-align: left; font-weight: 600; font-size: 12px; color: var(--muted); padding: 9px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; position: sticky; top: 0; background: var(--surface); z-index: 1; }
-.tbl td { padding: 8px 10px; border-top: 1px solid var(--line); vertical-align: top; }
+.tbl th { text-align: left; font-weight: 500; font-size: 12px; color: var(--muted); padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; position: sticky; top: 0; background: var(--surface); z-index: 1; }
+.tbl td { padding: var(--pad-y) 12px; border-top: 1px solid var(--line); vertical-align: top; }
 .tbl tr:first-child td { border-top: 0; }
 .tbl tr.click { cursor: pointer; }
 .tbl tr.click:hover td { background: var(--hover); }
@@ -207,6 +190,79 @@ a.chip:hover { border-color: var(--accent); text-decoration: none; }
   body { background: #fff; color: #000; }
 }
 
+/* ── Redesign (25 Nov): backlog list, quiet stat strip, order header, settings ── */
+.head-gear { margin-bottom: 2px; }
+.strip { display: flex; flex-wrap: wrap; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; margin: 4px 0 18px; overflow: hidden; }
+.strip > div { flex: 1 1 130px; padding: 12px 16px; border-left: 1px solid var(--line); margin-left: -1px; }
+.strip > div > a { color: inherit; text-decoration: none; display: block; }
+.strip b { display: block; font: 700 22px/1.15 var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.strip span { font-size: 12px; color: var(--muted); }
+.strip .hot b { color: var(--danger); }
+.listhead { display: flex; align-items: center; justify-content: space-between; margin: 0 2px 8px; color: var(--muted); font-size: 13px; }
+.sortsel { display: inline-flex; gap: 6px; align-items: center; }
+.sortsel select { border: 1px solid var(--line); background: var(--surface); border-radius: 7px; padding: 3px 6px; }
+
+.backlog { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.bl { display: grid; grid-template-columns: minmax(130px, 170px) 1fr auto; gap: 18px; align-items: start; padding: calc(var(--pad-y) + 4px) 18px; border-top: 1px solid var(--line); cursor: pointer; position: relative; }
+.bl:first-child { border-top: 0; }
+.bl:hover { background: var(--hover); }
+.bl.urgent::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--danger); }
+.bl-part { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.tag { font: 600 14.5px/1 var(--font-body); font-variant-numeric: tabular-nums; letter-spacing: .01em; background: var(--accent-soft); color: var(--accent); padding: 5px 8px 5px; border-radius: 6px; }
+.aka { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.bl-desc { font-weight: 500; margin: 2px 0 6px; }
+.bl-pos { display: flex; flex-wrap: wrap; gap: 4px; }
+.bl-pos .chip { margin: 0; background: var(--bg); border-color: transparent; }
+.bl-pos .chip.u b { color: var(--danger); }
+.bl-qty { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; min-width: 96px; }
+.bl-qty b { font: 700 26px/1 var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.bl-qty span { font-size: 12px; color: var(--muted); }
+.bl-qty span.late { color: var(--danger); }
+.mini-bar { display: block; width: 80px; height: 4px; border-radius: 2px; background: var(--bg); overflow: hidden; margin-top: 4px; }
+.mini-bar i { display: block; height: 100%; background: var(--ok); }
+
+.ohead-top { display: flex; align-items: center; gap: 8px; }
+.ohead-title { font: 700 22px/1.2 var(--font-display); letter-spacing: -.01em; margin: 8px 0 10px; }
+.ohead-progress { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; font-size: 13px; color: var(--muted); }
+.ohead-progress b { color: var(--ink); }
+.bar.big { height: 8px; border-radius: 4px; flex: 0 0 min(320px, 45%); }
+.bar i { background: var(--ok); }
+
+.side-foot { gap: 6px; }
+.foot-btn { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 8px; color: var(--ink); font-size: 14px; margin: 0 -10px; }
+.foot-btn:hover { background: var(--hover); }
+.who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.sheet.settings { width: min(560px, 100%); }
+.sheet.settings h3 { font: 600 11.5px var(--font-body); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 0 8px; }
+.sheet.settings h3:first-child { margin-top: 4px; }
+.themes { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.theme { display: flex; gap: 10px; align-items: center; text-align: left; padding: 7px 9px; border-radius: 9px; }
+.theme:hover { background: var(--hover); }
+.theme.on { background: var(--accent-soft); }
+.theme b { display: block; font-weight: 500; }
+.theme.on b { font-weight: 600; }
+.theme small { display: block; color: var(--muted); font-size: 11.5px; line-height: 1.25; }
+.swatch { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; flex: none; }
+.swatch i { width: 12px; height: 22px; display: block; }
+.seg.wide { display: flex; width: 100%; }
+.seg.wide button { flex: 1; padding: 7px 8px; }
+.menu-list { display: grid; }
+.menu-list button { display: flex; gap: 10px; align-items: center; padding: 8px 6px; border-radius: 8px; text-align: left; }
+.menu-list button:hover { background: var(--hover); }
+.hint { font-size: 12.5px; color: var(--muted); margin: 6px 2px 0 !important; }
+@media (max-width: 760px) {
+  .bl { grid-template-columns: 1fr auto; gap: 8px 12px; padding: 12px 14px; }
+  .bl-part { flex-direction: row; align-items: center; gap: 8px; grid-column: 1; }
+  .bl-main { grid-column: 1 / -1; grid-row: 2; }
+  .bl-qty { grid-column: 2; grid-row: 1; }
+  .strip > div { flex-basis: 45%; }
+  .themes { grid-template-columns: 1fr; }
+  .ohead-progress { flex-direction: column; align-items: stretch; }
+  .bar.big { flex-basis: auto; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
 </style>
 </head>
 <body>
@@ -220,7 +276,7 @@ a.chip:hover { border-color: var(--accent); text-decoration: none; }
     <header class="head">
       <h1 id="viewTitle">Outstanding</h1><span class="sub" id="viewSub"></span>
       <span class="spacer"></span>
-      <label class="search" for="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg><input id="search" type="search" placeholder="Search part, PO, delivery note…" autocomplete="off" aria-label="Search"><kbd>/</kbd></label>
+      <button class="iconbtn head-gear" data-act="settings" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button><label class="search" for="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg><input id="search" type="search" placeholder="Search part, PO, delivery note…" autocomplete="off" aria-label="Search"><kbd>/</kbd></label>
     </header>
     <div class="toolbar" id="toolbar"></div>
     <div class="content" id="content"><div class="empty">Loading…</div></div>
@@ -270,6 +326,7 @@ const ICON = {
   bill: '<svg viewBox="0 0 24 24"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3zM9 8h6M9 12h6"/></svg>',
   tag: '<svg viewBox="0 0 24 24"><path d="M3 12V4h8l10 10-8 8L3 12zM7.5 7.5h.01"/></svg>',
   file: '<svg viewBox="0 0 24 24"><path d="M6 3h8l5 5v13H6zM14 3v5h5"/></svg>',
+  gear: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
   clock: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
 };
 
@@ -290,6 +347,85 @@ function friendlyError(e) {
   return m || 'Something went wrong.';
 }
 
+
+// ───────────────────────── themes & settings (same themes as Jino's Tally) ─────────────────────────
+const THEMES = {
+  harbor: { name: 'Harbor', note: 'Slate and cobalt',
+    light: { bg: '#e4e9f2', surface: '#ffffff', side: '#f4f7fc', ink: '#121a2b', muted: '#56627a', line: '#d2d9e6', accent: '#1d4ed8', 'accent-soft': '#dbe5fd', hover: '#eef2fa' },
+    dark: { bg: '#0d1220', surface: '#161d2e', side: '#121929', ink: '#e8edf7', muted: '#94a0b8', line: '#26304a', accent: '#6d93ff', 'accent-soft': '#1d2c55', hover: '#1c2540' } },
+  sage: { name: 'Sage', note: 'Green, calm',
+    light: { bg: '#dfe9e2', surface: '#fbfdfb', side: '#eef5f0', ink: '#15231a', muted: '#52685a', line: '#c9d9ce', accent: '#2f7a50', 'accent-soft': '#d4eadb', hover: '#e9f2ec' },
+    dark: { bg: '#0e1611', surface: '#162019', side: '#121b15', ink: '#e2ede5', muted: '#8fa596', line: '#24362a', accent: '#5fc28a', 'accent-soft': '#183a26', hover: '#1c2a20' } },
+  nordic: { name: 'Nordic', note: 'Frosty blue-gray',
+    light: { bg: '#dde4ee', surface: '#fafbfd', side: '#edf1f7', ink: '#232a36', muted: '#59647a', line: '#c8d2e1', accent: '#3f6fa8', 'accent-soft': '#d5e2f2', hover: '#e8edf5' },
+    dark: { bg: '#252b36', surface: '#323a49', side: '#2c3340', ink: '#eceff4', muted: '#a7b1c4', line: '#47516a', accent: '#88c0d0', 'accent-soft': '#375066', hover: '#3a4355' } },
+  lavender: { name: 'Lavender', note: 'Violet',
+    light: { bg: '#e7e3f5', surface: '#fdfcff', side: '#f3f0fb', ink: '#1f1a33', muted: '#625b7c', line: '#d6d0ea', accent: '#5b47c7', 'accent-soft': '#e2dcfa', hover: '#efebfa' },
+    dark: { bg: '#120f1d', surface: '#1c1830', side: '#171427', ink: '#ebe7f7', muted: '#a199bf', line: '#302a4a', accent: '#a593ff', 'accent-soft': '#2d2556', hover: '#241f3b' } },
+  sand: { name: 'Sand & Teal', note: 'Warm neutral, teal accent',
+    light: { bg: '#ece5d8', surface: '#fffdf8', side: '#f6f1e7', ink: '#221e17', muted: '#6c6553', line: '#ddd3c1', accent: '#0f766e', 'accent-soft': '#d3ece8', hover: '#f3ede1' },
+    dark: { bg: '#15130f', surface: '#201d18', side: '#1b1814', ink: '#eee9df', muted: '#aaa291', line: '#36312a', accent: '#3cc2b4', 'accent-soft': '#143a36', hover: '#2a261f' } },
+  rosewood: { name: 'Rosewood', note: 'Dusty rose',
+    light: { bg: '#f1e3e7', surface: '#fffbfc', side: '#f9f0f2', ink: '#2a1a20', muted: '#77606a', line: '#e5d0d7', accent: '#9d3457', 'accent-soft': '#f6dbe4', hover: '#f7ecef' },
+    dark: { bg: '#1a1215', surface: '#251a1e', side: '#20161a', ink: '#f2e7ea', muted: '#b39da5', line: '#3d2c32', accent: '#f07ea3', 'accent-soft': '#452131', hover: '#2e2126' } },
+  graphite: { name: 'Graphite', note: 'Black and white, no fuss',
+    light: { bg: '#e4e4e7', surface: '#ffffff', side: '#f4f4f5', ink: '#18181b', muted: '#5f5f68', line: '#d4d4d8', accent: '#27272a', 'accent-soft': '#e4e4e7', hover: '#f1f1f3' },
+    dark: { bg: '#0c0c0d', surface: '#1a1a1c', side: '#141416', ink: '#f0f0f2', muted: '#a1a1aa', line: '#2e2e32', accent: '#e4e4e7', 'accent-soft': '#2e2e32', hover: '#252528' } }
+};
+const POPULAR = {
+  github: { name: 'GitHub', note: 'Clean and crisp',
+    light: { bg: '#eaeef2', surface: '#ffffff', side: '#f6f8fa', ink: '#1f2328', muted: '#59636e', line: '#d1d9e0', accent: '#0969da', 'accent-soft': '#ddf4ff', hover: '#f3f5f7' },
+    dark: { bg: '#010409', surface: '#0d1117', side: '#010409', ink: '#e6edf3', muted: '#9198a1', line: '#30363d', accent: '#4493f8', 'accent-soft': '#12233d', hover: '#151b23' } },
+  solarized: { name: 'Solarized', note: 'The classic warm-cool pair',
+    light: { bg: '#eee8d5', surface: '#fdf6e3', side: '#f5efdc', ink: '#073642', muted: '#657b83', line: '#e0d9c3', accent: '#268bd2', 'accent-soft': '#dfe9e6', hover: '#f7f0dd' },
+    dark: { bg: '#00212b', surface: '#002b36', side: '#012631', ink: '#eee8d5', muted: '#93a1a1', line: '#0d3c48', accent: '#268bd2', 'accent-soft': '#0c3d55', hover: '#073642' } },
+  gruvbox: { name: 'Gruvbox', note: 'Retro, earthy, orange',
+    light: { bg: '#ebdbb2', surface: '#fbf1c7', side: '#f2e5bc', ink: '#3c3836', muted: '#7c6f64', line: '#d5c4a1', accent: '#af3a03', 'accent-soft': '#f3d9b1', hover: '#f4e8be' },
+    dark: { bg: '#1d2021', surface: '#282828', side: '#232323', ink: '#ebdbb2', muted: '#a89984', line: '#3c3836', accent: '#fe8019', 'accent-soft': '#4a3020', hover: '#32302f' } },
+  catppuccin: { name: 'Catppuccin', note: 'Soothing pastel (Latte / Mocha)',
+    light: { bg: '#dce0e8', surface: '#eff1f5', side: '#e6e9ef', ink: '#4c4f69', muted: '#6c6f85', line: '#ccd0da', accent: '#8839ef', 'accent-soft': '#e4d7fb', hover: '#e6e9ef' },
+    dark: { bg: '#11111b', surface: '#1e1e2e', side: '#181825', ink: '#cdd6f4', muted: '#a6adc8', line: '#313244', accent: '#cba6f7', 'accent-soft': '#3a2f52', hover: '#262637' } },
+  dracula: { name: 'Dracula', note: 'Dark purple favorite',
+    light: { bg: '#ecebf3', surface: '#ffffff', side: '#f6f5fa', ink: '#1f1f2b', muted: '#635d7a', line: '#dad7e6', accent: '#644ac9', 'accent-soft': '#e7e1fb', hover: '#f2f0f8' },
+    dark: { bg: '#191a21', surface: '#282a36', side: '#21222c', ink: '#f8f8f2', muted: '#a4a9c7', line: '#44475a', accent: '#bd93f9', 'accent-soft': '#3d3557', hover: '#303241' } },
+  tokyo: { name: 'Tokyo Night', note: 'Neon-city blues',
+    light: { bg: '#d5d6db', surface: '#e9eaef', side: '#e1e2e7', ink: '#343b58', muted: '#565a6e', line: '#c4c8da', accent: '#2e7de9', 'accent-soft': '#d5def5', hover: '#dfe1e8' },
+    dark: { bg: '#16161e', surface: '#1a1b26', side: '#1f2335', ink: '#c0caf5', muted: '#8089b3', line: '#292e42', accent: '#7aa2f7', 'accent-soft': '#283457', hover: '#222436' } },
+  rosepine: { name: 'Ros\u00e9 Pine', note: 'Muted, elegant (Dawn / Main)',
+    light: { bg: '#f2e9e1', surface: '#fffaf3', side: '#faf4ed', ink: '#575279', muted: '#797593', line: '#dfdad9', accent: '#907aa9', 'accent-soft': '#ece3f1', hover: '#f4ede8' },
+    dark: { bg: '#191724', surface: '#1f1d2e', side: '#1a1826', ink: '#e0def4', muted: '#908caa', line: '#2a2837', accent: '#c4a7e7', 'accent-soft': '#352f4d', hover: '#26233a' } },
+  everforest: { name: 'Everforest', note: 'Soft forest greens',
+    light: { bg: '#efebd4', surface: '#fdf6e3', side: '#f4f0d9', ink: '#5c6a72', muted: '#829181', line: '#e0dcc7', accent: '#3a9474', 'accent-soft': '#dcece0', hover: '#f2eed6' },
+    dark: { bg: '#232a2e', surface: '#2d353b', side: '#293136', ink: '#d3c6aa', muted: '#9da9a0', line: '#3d484d', accent: '#a7c080', 'accent-soft': '#3c4841', hover: '#343f44' } }
+};
+Object.keys(POPULAR).forEach(k => { POPULAR[k].popular = true; THEMES[k] = POPULAR[k]; });
+const SEMANTIC = {
+  light: { danger: '#c4372c', p1: '#d1372b', p2: '#e07b12', p3: '#2f6fd6', sun: '#d99100', 'sun-soft': '#fdf3dc', 'on-accent': '#ffffff', shadow: '0 1px 2px rgba(16,24,40,.06), 0 8px 24px rgba(16,24,40,.08)' },
+  dark: { danger: '#ef6b5f', p1: '#ef6b5f', p2: '#f0a04b', p3: '#7c9cf5', sun: '#f0b43c', 'sun-soft': '#2e2615', 'on-accent': '#10131a', shadow: '0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35)' }
+};
+const SETTINGS_KEY = 'bk.settings.v1';
+const DEFAULTS = { theme: 'sand', mode: 'system', numFirst: 'wet', density: 'comfortable', home: 'part' };
+let settings = (() => { try { return Object.assign({}, DEFAULTS, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')); } catch (e) { return { ...DEFAULTS }; } })();
+function saveSettings() { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) {} }
+const mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+const resolvedMode = () => settings.mode === 'system' ? (mq && mq.matches ? 'dark' : 'light') : settings.mode;
+const EXTRA = {
+  light: { warn: '#a15c00', 'warn-soft': '#fbeed6', ok: '#1f7a45', 'ok-soft': '#dff1e6', 'danger-soft': '#fbe5e2' },
+  dark: { warn: '#f0b43c', 'warn-soft': '#33280f', ok: '#5cc98a', 'ok-soft': '#163024', 'danger-soft': '#3a1d1a' },
+};
+function applyTheme() {
+  const th = THEMES[settings.theme] || THEMES.sand, mode = resolvedMode();
+  const vars = Object.assign({}, th[mode], SEMANTIC[mode], EXTRA[mode]);
+  const st = document.documentElement.style;
+  for (const k in vars) st.setProperty('--' + k, vars[k]);
+  st.setProperty('color-scheme', mode);
+  document.documentElement.dataset.mode = mode;
+  document.documentElement.dataset.density = settings.density;
+  const meta = document.querySelector('meta[name=theme-color]'); if (meta) meta.content = vars.side || vars.surface;
+}
+if (mq && mq.addEventListener) mq.addEventListener('change', () => { if (settings.mode === 'system') applyTheme(); });
+applyTheme();
+
 // ───────────────────────── data ─────────────────────────
 const cfg = window.BK_CONFIG;
 const sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey, { auth: { persistSession: true, detectSessionInUrl: true, autoRefreshToken: true } });
@@ -297,6 +433,7 @@ const TABLES = ['parts', 'part_numbers', 'orders', 'order_lines', 'deliveries', 
 const db = Object.fromEntries(TABLES.map(t => [t, []]));
 let D = {};               // derived indexes, rebuilt after every change
 let loadedAt = 0;
+let hasSO = false;   // true once orders.wet_so exists (supabase/fixes/2026-11-25-wet-so.sql)
 let user = null;
 
 async function fetchAll(table) {
@@ -312,6 +449,7 @@ async function loadAll() {
   const res = await Promise.all(TABLES.map(fetchAll));
   TABLES.forEach((t, i) => { db[t] = res[i]; });
   loadedAt = Date.now();
+  hasSO = db.orders.length ? 'wet_so' in db.orders[0] : hasSO;
   derive();
 }
 function patchLocal(table, row) {
@@ -408,10 +546,17 @@ function derive() {
     D.O.set(o.id, { status, lines: lines.length, ordered, outstanding, shipped, pct: ordered ? shipped / ordered : 0, openIssues, late: lines.some(l => D.L.get(l.id).late), urgent: lines.some(l => l.urgent && D.L.get(l.id).outstanding > 0) });
   }
 }
-const mainNo = pid => ((D.numbers.get(pid) || [])[0] || {}).number || '?';
-const otherNos = pid => (D.numbers.get(pid) || []).slice(1).map(n => n.number);
+// Which number leads: WET's main number, or the client's (WC) number. Settings → Part numbers.
+function firstNumber(pid) {
+  const nums = D.numbers.get(pid) || [];
+  if (settings.numFirst === 'client') return nums.find(n => n.label === 'client') || nums.find(n => n.label === 'old') || nums[0];
+  return nums[0];
+}
+const mainNo = pid => (firstNumber(pid) || {}).number || '?';
+const otherNos = pid => { const f = firstNumber(pid); return (D.numbers.get(pid) || []).filter(n => n !== f).map(n => n.number); };
 const partDesc = pid => (D.part.get(pid) || {}).description || '(part deleted)';
 const orderName = id => { const o = D.order.get(id); return o ? (o.po_number || o.title) : ''; };
+const soOf = id => { const o = D.order.get(id); return o && o.wet_so ? 'SO ' + o.wet_so : ''; };
 const STATUS_PILL = { 'Quote sent': '', 'PO received': 'blue', 'Partially shipped': 'amber', 'Fully shipped': 'green', 'Closed': '' };
 const statusPill = s => `<span class="pill ${STATUS_PILL[s] || ''}">${esc(s)}</span>`;
 const issuePill = s => `<span class="pill ${s === 'Resolved' ? 'green' : s === 'Open' ? 'red' : 'amber'}">${esc(s)}</span>`;
@@ -435,7 +580,7 @@ const NAV = [
   ['issues', 'Problems', 'alert'], ['invoices', 'Invoices', 'bill'], ['sep'], ['parts', 'Parts', 'tag'],
   ['documents', 'Documents', 'file'], ['history', 'History', 'clock'],
 ];
-const ui = { q: '', outMode: 'part', urgentOnly: false, orderFilter: 'open', showArchived: false, issueFilter: 'open', sort: {} };
+const ui = { q: '', outSort: 'urgent', outMode: settings.home === 'line' ? 'line' : 'part', urgentOnly: false, orderFilter: 'open', showArchived: false, issueFilter: 'open', sort: {} };
 let exportable = null;   // {name, cols, rows} of the table on screen
 function route() { const p = location.hash.replace(/^#\/?/, '').split('/'); return { view: p[0] || 'outstanding', id: p[1] || null, sub: p[2] || null }; }
 const go = h => { location.hash = h; };
@@ -447,7 +592,7 @@ function renderNav() {
   const counts = { outstanding: openLines || '', issues: openIssues || '', orders: db.orders.filter(o => !['Fully shipped', 'Closed'].includes(D.O.get(o.id)?.status)).length || '' };
   $('#nav').innerHTML = NAV.map(n => n[0] === 'sep' ? '<div class="nav-sep"></div>' :
     `<a href="#/${n[0]}" ${r.view === n[0] ? 'aria-current="page"' : ''}>${ICON[n[2]]}<span class="label">${n[1]}</span><span class="count ${n[0] === 'issues' && openIssues ? 'hot' : ''}">${counts[n[0]] ?? ''}</span></a>`).join('');
-  $('#sideFoot').innerHTML = user ? `<div>${esc(user.email)}</div><div class="row"><button class="btn small" data-act="reload">Reload</button><button class="btn small" data-act="signout">Sign out</button></div>` : '';
+  $('#sideFoot').innerHTML = user ? `<button class="foot-btn" data-act="settings">${ICON.gear}<span>Settings</span></button><div class="who">${esc(user.email)}</div>` : '';
 }
 
 function render() {
@@ -499,14 +644,15 @@ VIEWS.outstanding = () => {
   const openIssues = db.issues.filter(i => i.status !== 'Resolved').length;
   const oldest = Math.max(0, ...open.map(l => D.L.get(l.id).age || 0));
   const late = open.filter(l => D.L.get(l.id).late).length;
-  const stats = `<div class="stats">
-    <div class="stat"><div class="k">Units outstanding</div><div class="v">${fmtN(sum(open, l => D.L.get(l.id).outstanding))}</div></div>
-    <div class="stat"><div class="k">Parts outstanding</div><div class="v">${new Set(open.map(l => l.part_id)).size}</div></div>
-    <div class="stat ${urgentParts.size ? 'hot' : ''}"><div class="k">Urgent parts</div><div class="v">${urgentParts.size}</div></div>
-    <div class="stat"><div class="k">Open PO lines</div><div class="v">${open.length}</div></div>
-    <div class="stat ${late ? 'hot' : ''}"><div class="k">Past expected date</div><div class="v">${late}</div></div>
-    <div class="stat ${openIssues ? 'hot' : ''}"><div class="k">Open delivery problems</div><div class="v">${openIssues}</div></div>
-    <div class="stat"><div class="k">Oldest open PO</div><div class="v">${oldest ? oldest + ' days' : '–'}</div></div>
+  const units = sum(open, l => D.L.get(l.id).outstanding);
+  const strip = `<div class="strip">
+    <div><b>${fmtN(units)}</b><span>units owed</span></div>
+    <div><b>${new Set(open.map(l => l.part_id)).size}</b><span>parts</span></div>
+    <div><b>${open.length}</b><span>open PO lines</span></div>
+    <div class="${urgentParts.size ? 'hot' : ''}"><b>${urgentParts.size}</b><span>urgent parts</span></div>
+    <div class="${late ? 'hot' : ''}"><b>${late}</b><span>past expected date</span></div>
+    <div class="${openIssues ? 'hot' : ''}"><a href="#/issues"><b>${openIssues}</b><span>delivery problems</span></a></div>
+    <div><b>${oldest || '–'}</b><span>days, oldest open PO</span></div>
   </div>`;
   const tools = `<div class="seg"><button data-act="outMode" data-v="part" aria-pressed="${ui.outMode === 'part'}">By part</button><button data-act="outMode" data-v="line" aria-pressed="${ui.outMode === 'line'}">By PO line</button></div>
     <div class="seg"><button data-act="urgentOnly" data-v="0" aria-pressed="${!ui.urgentOnly}">All</button><button data-act="urgentOnly" data-v="1" aria-pressed="${ui.urgentOnly}">Urgent only</button></div>`;
@@ -514,40 +660,44 @@ VIEWS.outstanding = () => {
   if (ui.outMode === 'part') {
     const byPart = group(open, 'part_id');
     let rows = [...byPart].map(([pid, ls]) => ({
-      pid, number: mainNo(pid), desc: partDesc(pid), lines: ls,
-      outstanding: sum(ls, l => D.L.get(l.id).outstanding), urgent: ls.some(l => l.urgent),
-      age: Math.max(...ls.map(l => D.L.get(l.id).age || 0)), late: ls.some(l => D.L.get(l.id).late),
+      pid, number: mainNo(pid), desc: partDesc(pid), lines: ls.sort((a, b) => String((D.order.get(a.order_id) || {}).po_date).localeCompare(String((D.order.get(b.order_id) || {}).po_date))),
+      outstanding: sum(ls, l => D.L.get(l.id).outstanding), ordered: sum(ls, l => l.qty), shipped: sum(ls, l => Math.min(+l.qty, D.L.get(l.id).shipped)),
+      urgent: ls.some(l => l.urgent), age: Math.max(...ls.map(l => D.L.get(l.id).age || 0)), late: ls.some(l => D.L.get(l.id).late),
       pos: ls.map(l => orderName(l.order_id) + ' (' + fmtN(D.L.get(l.id).outstanding) + ')').join(', '),
-    })).filter(r => matchesPart(r.pid, q) || r.pos.toLowerCase().includes(q));
+    })).filter(r => matchesPart(r.pid, q) || lc(r.pos).includes(q) || r.lines.some(l => lc((D.order.get(l.order_id) || {}).wet_so).includes(q)));
     if (ui.urgentOnly) rows = rows.filter(r => r.urgent);
-    rows.sort((a, b) => (b.urgent - a.urgent) || (b.age - a.age) || (b.outstanding - a.outstanding));
-    html = table('outPart', [
-      { key: 'number', label: 'Part', html: r => partCell(r.pid), text: r => [mainNo(r.pid), ...otherNos(r.pid)].join(' / ') },
-      { key: 'desc', label: 'Description', cls: 'desc' },
-      { key: 'outstanding', label: 'Outstanding', num: true, html: r => `<b>${fmtN(r.outstanding)}</b>`, text: r => r.outstanding },
-      { key: 'urgent', label: 'Urgent', sort: r => +r.urgent, html: r => r.urgent ? '<span class="pill red">Urgent</span>' : '', text: r => r.urgent ? 'Urgent' : '' },
-      { key: 'age', label: 'Oldest (days)', num: true, html: r => `<span class="${r.late ? 'late' : ''}">${r.age}</span>`, text: r => r.age },
-      { key: 'pos', label: 'On POs', nosort: true, html: r => r.lines.map(l => `<a class="chip" href="#/orders/${l.order_id}" data-stop>${esc(orderName(l.order_id))} <b>${fmtN(D.L.get(l.id).outstanding)}</b>${l.urgent ? ' <span class="flag">!</span>' : ''}</a>`).join(''), text: r => r.pos },
-    ], rows, { href: r => '#/parts/' + r.pid, name: 'Outstanding by part', empty: q ? 'No outstanding parts match your search.' : 'Nothing outstanding. Everything ordered has been delivered.' });
+    const SORTS = { urgent: (a, b) => (b.urgent - a.urgent) || (b.age - a.age) || (b.outstanding - a.outstanding), most: (a, b) => b.outstanding - a.outstanding, oldest: (a, b) => b.age - a.age, number: (a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }) };
+    rows.sort(SORTS[ui.outSort] || SORTS.urgent);
+    exportable = { name: 'Outstanding by part', rows, cols: [
+      { label: 'Part', text: r => r.number }, { label: 'Other numbers', text: r => otherNos(r.pid).join(' / ') }, { label: 'Description', text: r => r.desc },
+      { label: 'Outstanding', text: r => r.outstanding }, { label: 'Urgent', text: r => r.urgent ? 'Urgent' : '' }, { label: 'Oldest (days)', text: r => r.age }, { label: 'On POs', text: r => r.pos }] };
+    const sortSel = `<label class="sortsel">Sort <select data-act-change="outSort">${[['urgent', 'Urgent first'], ['most', 'Most owed'], ['oldest', 'Oldest first'], ['number', 'Part number']].map(([v, l]) => `<option value="${v}" ${(ui.outSort || 'urgent') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`;
+    html = `<div class="listhead"><span>${rows.length} part${rows.length === 1 ? '' : 's'} owed</span>${sortSel}</div>` + (rows.length ? `<div class="backlog">${rows.map(r => `
+      <div class="bl ${r.urgent ? 'urgent' : ''}" data-go="#/parts/${r.pid}">
+        <div class="bl-part"><span class="tag">${esc(r.number)}</span>${otherNos(r.pid).length ? `<span class="aka">${otherNos(r.pid).map(esc).join(' · ')}</span>` : ''}</div>
+        <div class="bl-main"><div class="bl-desc">${esc(r.desc)}${r.urgent ? ' <span class="pill red">Urgent</span>' : ''}</div>
+          <div class="bl-pos">${r.lines.map(l => { const o = D.order.get(l.order_id) || {}; const c = D.L.get(l.id); return `<a class="chip ${l.urgent ? 'u' : ''}" href="#/orders/${l.order_id}" data-stop title="${esc(o.title)}${o.wet_so ? ' · WET SO ' + esc(o.wet_so) : ''}">${esc(o.po_number || o.title)} <b>${fmtN(c.outstanding)}</b></a>`; }).join('')}</div></div>
+        <div class="bl-qty"><b>${fmtN(r.outstanding)}</b><span class="${r.late ? 'late' : ''}">${r.age ? r.age + ' days' : 'new'}</span>${r.shipped > 0 ? `<i class="mini-bar" title="${fmtN(r.shipped)} of ${fmtN(r.ordered)} shipped"><i style="width:${Math.round(r.shipped / r.ordered * 100)}%"></i></i>` : ''}</div>
+      </div>`).join('')}</div>` : `<div class="tbl-wrap"><div class="empty">${q ? 'No outstanding part matches your search.' : 'Nothing outstanding. Everything ordered has been delivered.'}</div></div>`);
   } else {
     let rows = open.map(l => ({ l, ...D.L.get(l.id), o: D.order.get(l.order_id) || {} }))
-      .filter(r => matchesPart(r.l.part_id, q) || lc(r.o.po_number).includes(q) || lc(r.o.title).includes(q));
+      .filter(r => matchesPart(r.l.part_id, q) || lc(r.o.po_number).includes(q) || lc(r.o.wet_so).includes(q) || lc(r.o.title).includes(q));
     if (ui.urgentOnly) rows = rows.filter(r => r.l.urgent);
     rows.sort((a, b) => (b.l.urgent - a.l.urgent) || ((b.age || 0) - (a.age || 0)));
     html = table('outLine', [
-      { key: 'po', label: 'PO', sort: r => r.o.po_number, html: r => `<span class="nowrap">${esc(r.o.po_number || '–')}</span>`, text: r => r.o.po_number },
-      { key: 'title', label: 'Order', sort: r => r.o.title, text: r => r.o.title },
+      { key: 'po', label: 'PO', sort: r => r.o.po_number, html: r => `<span class="pn">${esc(r.o.po_number || '–')}</span>${r.o.wet_so ? `<div class="alias">SO ${esc(r.o.wet_so)}</div>` : ''}`, text: r => r.o.po_number },
       { key: 'part', label: 'Part', sort: r => mainNo(r.l.part_id), html: r => partCell(r.l.part_id, r.l.ordered_as), text: r => mainNo(r.l.part_id) + (r.l.ordered_as && lc(r.l.ordered_as) !== lc(mainNo(r.l.part_id)) ? ' (ordered as ' + r.l.ordered_as + ')' : '') },
       { key: 'desc', label: 'Description', sort: r => partDesc(r.l.part_id), text: r => partDesc(r.l.part_id) },
       { key: 'qty', label: 'Ordered', num: true, sort: r => +r.l.qty, text: r => fmtN(r.l.qty) },
       { key: 'shipped', label: 'Shipped', num: true, text: r => fmtN(r.shipped) },
-      { key: 'outstanding', label: 'Outstanding', num: true, html: r => `<b>${fmtN(r.outstanding)}</b>`, text: r => r.outstanding },
+      { key: 'outstanding', label: 'Owed', num: true, html: r => `<b>${fmtN(r.outstanding)}</b>`, text: r => r.outstanding },
       { key: 'urgent', label: 'Urgent', sort: r => +r.l.urgent, html: r => r.l.urgent ? '<span class="pill red">Urgent</span>' : '', text: r => r.l.urgent ? 'Urgent' : '' },
-      { key: 'age', label: 'Age (days)', num: true, text: r => r.age ?? '' },
+      { key: 'age', label: 'Days', num: true, text: r => r.age ?? '' },
       { key: 'expected', label: 'Expected', html: r => `<span class="nowrap ${r.late ? 'late' : ''}">${fmtD(r.expected)}</span>`, text: r => r.expected || '' },
+      { key: 'title', label: 'Order', sort: r => r.o.title, cls: 'small', text: r => r.o.title },
     ], rows, { href: r => '#/orders/' + r.l.order_id, name: 'Outstanding by PO line', empty: 'Nothing outstanding.' });
   }
-  return { title: 'Outstanding', sub: 'Everything still owed, old and new part numbers combined', tools, html: stats + html };
+  return { title: 'Outstanding', sub: 'What the client is still owed', tools, html: strip + html };
 };
 
 VIEWS.orders = r => {
@@ -555,12 +705,13 @@ VIEWS.orders = r => {
   const q = lc(ui.q);
   let rows = db.orders.map(o => ({ o, ...D.O.get(o.id) }));
   if (ui.orderFilter === 'open') rows = rows.filter(r => !['Fully shipped', 'Closed'].includes(r.status));
-  if (q) rows = rows.filter(r => [r.o.title, r.o.po_number, r.o.client, r.o.quote_ref, r.o.notes].some(v => lc(v).includes(q)) || (D.linesByOrder.get(r.o.id) || []).some(l => matchesPart(l.part_id, q)));
+  if (q) rows = rows.filter(r => [r.o.title, r.o.po_number, r.o.wet_so, r.o.client, r.o.quote_ref, r.o.notes].some(v => lc(v).includes(q)) || (D.linesByOrder.get(r.o.id) || []).some(l => matchesPart(l.part_id, q)));
   rows.sort((a, b) => String(b.o.po_date || b.o.created_at).localeCompare(String(a.o.po_date || a.o.created_at)));
   const tools = `<button class="btn primary" data-act="newOrder">${ICON.plus}New order</button>
     <div class="seg"><button data-act="orderFilter" data-v="open" aria-pressed="${ui.orderFilter === 'open'}">Open</button><button data-act="orderFilter" data-v="all" aria-pressed="${ui.orderFilter === 'all'}">All</button></div>`;
   const html = table('orders', [
     { key: 'po', label: 'PO', sort: r => r.o.po_number, html: r => `<span class="pn">${esc(r.o.po_number || '–')}</span>`, text: r => r.o.po_number },
+    { key: 'so', label: 'WET SO', sort: r => r.o.wet_so, html: r => `<span class="alias">${esc(r.o.wet_so || '')}</span>`, text: r => r.o.wet_so || '' },
     { key: 'title', label: 'Order', sort: r => r.o.title, html: r => `${esc(r.o.title)}${r.urgent ? ' <span class="pill red">Urgent</span>' : ''}`, text: r => r.o.title },
     { key: 'date', label: 'PO date', sort: r => r.o.po_date, html: r => `<span class="nowrap">${fmtD(r.o.po_date)}</span>`, text: r => r.o.po_date || '' },
     { key: 'status', label: 'Status', html: r => statusPill(r.status), text: r => r.status },
@@ -582,28 +733,27 @@ function orderDetail(id) {
   const docs = D.docsByOrder.get(id) || [];
   const issues = dels.flatMap(d => D.issuesByDelivery.get(d.id) || []);
   const f = (k, v) => `<div class="f"><div class="k">${k}</div><div class="v">${v || '–'}</div></div>`;
-  const header = `<div class="card"><h2>${statusPill(st.status)} <span>${esc(o.title)}</span><span class="spacer"></span>
-      <button class="btn small" data-act="editOrder" data-id="${id}">${ICON.edit}Edit</button>
-      <button class="iconbtn danger" title="Delete order" data-act="deleteOrder" data-id="${id}">${ICON.trash}</button></h2>
-    <div class="fields">${f('PO number', esc(o.po_number))}${f('PO date', fmtD(o.po_date))}${f('Client', esc(o.client))}${f('Quote', esc(o.quote_ref))}${f('Quote sent', fmtD(o.quote_sent))}${f('Expected', fmtD(o.expected_date))}${f('Ordered', fmtN(st.ordered))}${f('Outstanding', `<b>${fmtN(st.outstanding)}</b>`)}</div>
+  const pct = Math.round(st.pct * 100);
+  const header = `<div class="card ohead">
+    <div class="ohead-top">${statusPill(st.status)}<span class="spacer"></span>
+      <button class="btn small" data-act="editOrder" data-id="${id}">${ICON.edit}Edit order</button>
+      <button class="iconbtn danger" title="Delete order" data-act="deleteOrder" data-id="${id}">${ICON.trash}</button></div>
+    <div class="ohead-title">${esc(o.title)}</div>
+    <div class="ohead-progress"><div class="bar big"><i style="width:${pct}%"></i></div><span><b>${fmtN(st.shipped)}</b> of ${fmtN(st.ordered)} shipped · <b>${fmtN(st.outstanding)}</b> owed</span></div>
+    <div class="fields">${f('PO number', esc(o.po_number))}${hasSO ? f('WET SO', esc(o.wet_so)) : ''}${f('PO date', fmtD(o.po_date))}${f('Expected', fmtD(o.expected_date))}${f('Quote', esc(o.quote_ref))}${f('Quote sent', fmtD(o.quote_sent))}${f('Client', esc(o.client))}</div>
     ${o.closed ? '<div class="warnbox" style="margin-top:12px">Closed: anything not yet shipped is no longer counted as outstanding.</div>' : ''}
     ${o.notes ? `<div class="notes">${esc(o.notes)}</div>` : ''}</div>`;
   const lineRows = lines.map(l => {
     const c = D.L.get(l.id);
-    const e = (field, type, extra = '') => `<input type="${type}" data-edit="order_lines:${l.id}:${field}" value="${esc(l[field] ?? '')}" ${extra}>`;
-    return `<tr class="${l.cancelled ? 'muted' : ''}">
-      <td>${partCell(l.part_id)} <button class="iconbtn" title="Change part" data-act="changeLinePart" data-id="${l.id}">${ICON.swap}</button><div class="small">${esc(partDesc(l.part_id))}</div></td>
-      <td>${e('ordered_as', 'text', 'style="max-width:110px"')}</td>
-      <td class="num">${e('qty', 'number', 'min="0" step="any"')}</td>
-      <td class="num">${e('shipped_before', 'number', 'min="0" step="any" title="Shipped before tracking began"')}</td>
-      <td class="num">${fmtN(c.delivered)}</td>
+    return `<tr class="click ${l.cancelled ? 'muted' : ''}" data-act="editLine" data-id="${l.id}" title="Click to edit">
+      <td>${partCell(l.part_id, l.ordered_as)}<div class="small">${esc(partDesc(l.part_id))}</div></td>
+      <td class="num">${fmtN(l.qty)}</td>
+      <td class="num">${fmtN(c.shipped)}${+l.shipped_before ? `<div class="alias" title="Shipped before tracking began">${fmtN(l.shipped_before)} earlier</div>` : ''}</td>
       <td class="num"><b>${fmtN(c.outstanding)}</b>${c.openIssues ? ` <span class="flag" title="Open delivery problem">!</span>` : ''}</td>
-      <td><input type="checkbox" data-edit="order_lines:${l.id}:urgent" ${l.urgent ? 'checked' : ''} aria-label="Urgent"></td>
-      <td class="${c.late ? 'late' : ''}">${e('expected_date', 'date')}</td>
-      <td class="num">${e('unit_price', 'number', 'min="0" step="any" placeholder="–"')}</td>
-      <td><input type="checkbox" data-edit="order_lines:${l.id}:cancelled" ${l.cancelled ? 'checked' : ''} aria-label="Cancelled"></td>
-      <td>${e('notes', 'text', 'placeholder="…" style="min-width:140px"')}</td>
-      <td><button class="iconbtn danger" title="Delete line" data-act="deleteLine" data-id="${l.id}">${ICON.trash}</button></td></tr>`;
+      <td>${l.urgent ? '<span class="pill red">Urgent</span>' : ''}${l.cancelled ? '<span class="pill">Cancelled</span>' : ''}</td>
+      <td class="nowrap ${c.late ? 'late' : ''}">${fmtD(l.expected_date)}</td>
+      <td class="num">${l.unit_price != null ? money(l.unit_price) : ''}</td>
+      <td class="small">${esc(l.notes || '')}</td></tr>`;
   }).join('');
   exportable = {
     name: (o.po_number || o.title) + ' lines', cols: [
@@ -613,10 +763,10 @@ function orderDetail(id) {
       { label: 'Expected', text: l => l.expected_date || '' }, { label: 'Unit price', text: l => l.unit_price ?? '' }, { label: 'Cancelled', text: l => l.cancelled ? 'Yes' : '' }, { label: 'Notes', text: l => l.notes || '' }],
     rows: lines,
   };
-  const linesHtml = `<div class="section-title"><h2>Lines</h2><span class="small">${lines.length} · edit any cell, it saves when you leave it</span><span class="spacer"></span>
+  const linesHtml = `<div class="section-title"><h2>Lines</h2><span class="small">${lines.length} · click a line to edit it</span><span class="spacer"></span>
       <button class="btn small" data-act="pasteLines" data-id="${id}">Paste lines</button><button class="btn small primary" data-act="addLine" data-id="${id}">${ICON.plus}Add line</button></div>
-    ${lines.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th style="min-width:240px">Part</th><th>Ordered as</th><th class="num">Ordered</th><th class="num" title="Shipped before tracking began">Shipped before</th><th class="num">Delivered</th><th class="num">Outstanding</th><th>Urgent</th><th>Expected</th><th class="num">Unit price</th><th>Cancelled</th><th>Notes</th><th></th></tr></thead><tbody>${lineRows}</tbody>
-      <tfoot><tr><td colspan="2">Total</td><td class="num">${fmtN(st.ordered)}</td><td></td><td></td><td class="num">${fmtN(st.outstanding)}</td><td colspan="6"></td></tr></tfoot></table></div>` : '<div class="tbl-wrap"><div class="empty">No lines yet. Add them one by one, or paste a list.</div></div>'}`;
+    ${lines.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th style="min-width:260px">Part</th><th class="num">Ordered</th><th class="num">Shipped</th><th class="num">Owed</th><th></th><th>Expected</th><th class="num">Unit price</th><th>Notes</th></tr></thead><tbody>${lineRows}</tbody>
+      <tfoot><tr><td>Total</td><td class="num">${fmtN(st.ordered)}</td><td class="num">${fmtN(st.shipped)}</td><td class="num">${fmtN(st.outstanding)}</td><td colspan="4"></td></tr></tfoot></table></div>` : '<div class="tbl-wrap"><div class="empty">No lines yet. Add them one by one, or paste a list.</div></div>'}`;
   const delHtml = `<div class="section-title"><h2>Deliveries</h2><span class="spacer"></span><button class="btn small primary" data-act="newDelivery" data-order="${id}">${ICON.plus}Record delivery</button></div>` +
     (dels.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Delivery note</th><th>Shipped</th><th>Received</th><th class="num">Units</th><th>Tracking</th><th>Problems</th></tr></thead><tbody>${dels.map(d => {
       const n = (D.issuesByDelivery.get(d.id) || []).filter(i => i.status !== 'Resolved').length;
@@ -633,7 +783,7 @@ VIEWS.deliveries = r => {
   if (r.id) return deliveryDetail(r.id);
   const q = lc(ui.q);
   let rows = db.deliveries.map(d => ({ d, o: D.order.get(d.order_id) || {}, units: sum(D.dlByDelivery.get(d.id) || [], x => x.qty), lines: (D.dlByDelivery.get(d.id) || []).length, open: (D.issuesByDelivery.get(d.id) || []).filter(i => i.status !== 'Resolved').length }));
-  if (q) rows = rows.filter(r => [r.d.dn_number, r.d.tracking, r.d.notes, r.o.po_number, r.o.title].some(v => lc(v).includes(q)) || (D.dlByDelivery.get(r.d.id) || []).some(x => matchesPart(x.part_id, q) || lc(x.shipped_as).includes(q)));
+  if (q) rows = rows.filter(r => [r.d.dn_number, r.d.tracking, r.d.notes, r.o.po_number, r.o.wet_so, r.o.title].some(v => lc(v).includes(q)) || (D.dlByDelivery.get(r.d.id) || []).some(x => matchesPart(x.part_id, q) || lc(x.shipped_as).includes(q)));
   rows.sort((a, b) => String(b.d.ship_date || b.d.created_at).localeCompare(String(a.d.ship_date || a.d.created_at)));
   const html = table('deliveries', [
     { key: 'dn', label: 'Delivery note', sort: r => r.d.dn_number, html: r => `<span class="pn">${esc(r.d.dn_number)}</span>`, text: r => r.d.dn_number },
@@ -663,17 +813,15 @@ function deliveryDetail(id) {
     ${d.notes ? `<div class="notes">${esc(d.notes)}</div>` : ''}</div>`;
   const itemRows = dls.map(x => {
     const l = D.line.get(x.order_line_id);
-    const nums = D.numbers.get(x.part_id) || [];
-    return `<tr><td>${partCell(x.part_id)}<div class="small">${esc(partDesc(x.part_id))}</div></td>
-      <td><select data-edit="delivery_lines:${x.id}:shipped_as">${nums.map(n => `<option ${lc(n.number) === lc(x.shipped_as) ? 'selected' : ''}>${esc(n.number)}</option>`).join('')}${x.shipped_as && !nums.some(n => lc(n.number) === lc(x.shipped_as)) ? `<option selected>${esc(x.shipped_as)}</option>` : ''}</select></td>
-      <td class="num"><input type="number" min="0" step="any" data-edit="delivery_lines:${x.id}:qty" value="${esc(x.qty)}"></td>
-      <td>${l ? `${esc(orderName(l.order_id))} · ordered ${fmtN(l.qty)} as ${esc(l.ordered_as || mainNo(l.part_id))}` : '<span class="small">Not matched to an order line</span>'}</td>
-      <td><input type="text" data-edit="delivery_lines:${x.id}:notes" value="${esc(x.notes || '')}" placeholder="…"></td>
-      <td><button class="iconbtn danger" title="Remove from delivery" data-act="deleteDLine" data-id="${x.id}">${ICON.trash}</button></td></tr>`;
+    return `<tr class="click" data-act="editDLine" data-id="${x.id}" title="Click to edit">
+      <td>${partCell(x.part_id, x.shipped_as)}<div class="small">${esc(partDesc(x.part_id))}</div></td>
+      <td class="num"><b>${fmtN(x.qty)}</b></td>
+      <td>${l ? `${esc(orderName(l.order_id))} <span class="small">ordered ${fmtN(l.qty)} as ${esc(l.ordered_as || mainNo(l.part_id))}</span>` : '<span class="small">Not matched to an order line</span>'}</td>
+      <td class="small">${esc(x.notes || '')}</td></tr>`;
   }).join('');
   exportable = { name: d.dn_number, cols: [{ label: 'Part', text: x => mainNo(x.part_id) }, { label: 'Description', text: x => partDesc(x.part_id) }, { label: 'Shipped as', text: x => x.shipped_as }, { label: 'Qty received', text: x => x.qty }, { label: 'PO', text: x => orderName((D.line.get(x.order_line_id) || {}).order_id) }, { label: 'Notes', text: x => x.notes || '' }], rows: dls };
   const items = `<div class="section-title"><h2>Items received</h2><span class="small">Good quantity only. Record short, wrong or damaged items as problems below.</span></div>` +
-    (dls.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th style="min-width:240px">Part</th><th>Shipped as</th><th class="num">Qty</th><th>Against</th><th>Notes</th><th></th></tr></thead><tbody>${itemRows}</tbody></table></div>` : '<div class="tbl-wrap"><div class="empty">No items yet. Tick them off from the order below.</div></div>');
+    (dls.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th style="min-width:260px">Part</th><th class="num">Received</th><th>Against</th><th>Notes</th></tr></thead><tbody>${itemRows}</tbody></table></div>` : '<div class="tbl-wrap"><div class="empty">No items yet. Tick them off from the order below.</div></div>');
   let add = '';
   if (o) {
     const open = (D.linesByOrder.get(o.id) || []).filter(l => D.L.get(l.id).outstanding > 0);
@@ -854,7 +1002,8 @@ function openSheet({ title, body, foot, wide, onMount }) {
 function closeSheet() { const bg = $('#sheet'); bg.hidden = true; bg.innerHTML = ''; }
 
 // fields: [{k, label, type, options, full, required, placeholder}]
-function formSheet({ title, intro, fields, values = {}, saveLabel = 'Save', onSave, wide }) {
+function formSheet({ title, intro, fields, values = {}, saveLabel = 'Save', onSave, wide, extraFoot = '' }) {
+  fields = fields.filter(f => !f.needsSO || hasSO);
   const input = f => {
     const v = values[f.k] ?? f.default ?? '';
     if (f.type === 'textarea') return `<textarea name="${f.k}" placeholder="${esc(f.placeholder || '')}">${esc(v)}</textarea>`;
@@ -865,7 +1014,7 @@ function formSheet({ title, intro, fields, values = {}, saveLabel = 'Save', onSa
   openSheet({
     title, wide,
     body: `${intro ? `<p>${intro}</p>` : ''}<form class="form" id="sheetForm" autocomplete="off">${fields.map(f => f.type === 'check' ? `<label class="check ${f.full ? 'full' : ''}">${input(f)}${esc(f.label)}</label>` : `<label class="${f.full ? 'full' : ''}">${esc(f.label)}${f.required ? ' *' : ''}${input(f)}</label>`).join('')}<button type="submit" hidden></button></form><div class="err" id="sheetErr"></div>`,
-    foot: `<span class="spacer"></span><button class="btn" data-close>Cancel</button><button class="btn primary" id="sheetSave">${esc(saveLabel)}</button>`,
+    foot: `${extraFoot}<span class="spacer"></span><button class="btn" data-close>Cancel</button><button class="btn primary" id="sheetSave">${esc(saveLabel)}</button>`,
     onMount: el => {
       const form = $('#sheetForm', el);
       const submit = async e => {
@@ -966,8 +1115,9 @@ function newPartSheet(number = '', description = '') {
 const orderFields = [
   { k: 'title', label: 'Order name', required: true, full: true, placeholder: 'e.g. 2027 Q1/Q2 Mechanical' },
   { k: 'po_number', label: 'PO number', placeholder: 'e.g. PO5002700' }, { k: 'po_date', label: 'PO date', type: 'date' },
+  { k: 'wet_so', label: 'WET SO number (shipping’s order)', placeholder: 'e.g. 7570', needsSO: true }, { k: 'expected_date', label: 'Expected by (whole order)', type: 'date' },
   { k: 'quote_ref', label: 'Quote ref' }, { k: 'quote_sent', label: 'Quote sent', type: 'date' },
-  { k: 'client', label: 'Client', default: 'Burj Khalifa' }, { k: 'expected_date', label: 'Expected by (whole order)', type: 'date' },
+  { k: 'client', label: 'Client', default: 'Burj Khalifa' },
   { k: 'notes', label: 'Notes', type: 'textarea', full: true },
   { k: 'closed', label: 'Closed: stop counting what’s left as outstanding', type: 'check', full: true },
 ];
@@ -1027,8 +1177,36 @@ const ACTIONS = {
       onSave: v => ins('order_lines', { ...v, order_id: b.dataset.id, part_id: pick.part_id, sort: (D.linesByOrder.get(b.dataset.id) || []).length }) });
   },
   pasteLines: b => pasteLinesSheet(b.dataset.id),
-  changeLinePart: async b => { const l = D.line.get(b.dataset.id); const pick = await pickPart('Change part on this line', { exclude: l.part_id }); if (pick) act(() => upd('order_lines', l.id, { part_id: pick.part_id, ordered_as: l.ordered_as || pick.number }), 'Part changed'); },
-  deleteLine: b => { const l = D.line.get(b.dataset.id); const dl = (D.dlByLine.get(l.id) || []).length;
+  editLine: b => {
+    const l = D.line.get(b.dataset.id); if (!l) return;
+    const c = D.L.get(l.id);
+    formSheet({ title: 'Edit line', intro: `<b>${esc(mainNo(l.part_id))}</b> ${esc(partDesc(l.part_id))} · ${fmtN(c.delivered)} delivered on delivery notes`,
+      fields: [
+        { k: 'ordered_as', label: 'Ordered as (number on the PO)', list: (D.numbers.get(l.part_id) || []).map(n => n.number) }, { k: 'qty', label: 'Quantity ordered', type: 'number', required: true },
+        { k: 'shipped_before', label: 'Shipped before tracking began', type: 'number' }, { k: 'expected_date', label: 'Expected', type: 'date' },
+        { k: 'unit_price', label: 'Unit price', type: 'number' }, { k: 'urgent', label: 'Urgent', type: 'check' },
+        { k: 'cancelled', label: 'Cancelled (stop counting it as owed)', type: 'check' }, { k: 'notes', label: 'Notes', type: 'textarea', full: true }],
+      values: l, extraFoot: `<button class="btn" data-act="changeLinePart" data-id="${l.id}">${ICON.swap}Change part</button><button class="btn danger" data-act="deleteLine" data-id="${l.id}">${ICON.trash}Delete line</button>`,
+      onSave: v => upd('order_lines', l.id, { ...v, qty: v.qty ?? 0, shipped_before: v.shipped_before ?? 0 }) });
+  },
+  editDLine: b => {
+    const x = db.delivery_lines.find(r => r.id === b.dataset.id); if (!x) return;
+    formSheet({ title: 'Edit delivered item', intro: `<b>${esc(mainNo(x.part_id))}</b> ${esc(partDesc(x.part_id))}`,
+      fields: [{ k: 'qty', label: 'Good quantity received', type: 'number', required: true }, { k: 'shipped_as', label: 'Shipped as', type: 'select', options: [...new Set([...(D.numbers.get(x.part_id) || []).map(n => n.number), x.shipped_as].filter(Boolean))] },
+        { k: 'notes', label: 'Notes', type: 'textarea', full: true }],
+      values: x, extraFoot: `<button class="btn danger" data-act="deleteDLine" data-id="${x.id}">${ICON.trash}Remove from delivery</button>`,
+      onSave: v => upd('delivery_lines', x.id, v) });
+  },
+  settings: () => settingsSheet(),
+  setTheme: b => { settings.theme = b.dataset.v; saveSettings(); applyTheme(); settingsSheet(); },
+  setMode: b => { settings.mode = b.dataset.v; saveSettings(); applyTheme(); settingsSheet(); },
+  setNumFirst: b => { settings.numFirst = b.dataset.v; saveSettings(); render(); settingsSheet(); },
+  setDensity: b => { settings.density = b.dataset.v; saveSettings(); applyTheme(); settingsSheet(); },
+  setHome: b => { settings.home = b.dataset.v; ui.outMode = b.dataset.v; saveSettings(); render(); settingsSheet(); },
+  backup: () => backupAll(),
+  goHistory: () => { closeSheet(); go('#/history'); },
+  changeLinePart: async b => { closeSheet(); const l = D.line.get(b.dataset.id); const pick = await pickPart('Change part on this line', { exclude: l.part_id }); if (pick) act(() => upd('order_lines', l.id, { part_id: pick.part_id, ordered_as: l.ordered_as || pick.number }), 'Part changed'); },
+  deleteLine: b => { closeSheet(); const l = D.line.get(b.dataset.id); const dl = (D.dlByLine.get(l.id) || []).length;
     confirmSheet('Delete line?', `Delete <b>${esc(mainNo(l.part_id))}</b> × ${fmtN(l.qty)} from this order?${dl ? ` It has ${dl} delivery item${dl > 1 ? 's' : ''} recorded; those stay on their delivery notes but won’t count against any line.` : ''}<br><br>Tip: if the client cancelled it, tick “Cancelled” instead to keep the record.`, 'Delete line', () => del('order_lines', l.id)); },
 
   newDelivery: b => formSheet({ title: 'Record delivery', intro: 'After saving you can tick off what arrived.', fields: deliveryFields(), values: { order_id: b.dataset.order || '', received_date: todayISO() }, saveLabel: 'Next',
@@ -1045,7 +1223,7 @@ const ACTIONS = {
     if (over.length) confirmSheet('More than outstanding', `${over.map(r => `${esc(mainNo(r.line.part_id))}: ${fmtN(r.qty)} received, only ${fmtN(r.max)} outstanding`).join('<br>')}<br><br>Add anyway?`, 'Add anyway', save, false);
     else save();
   },
-  deleteDLine: b => act(() => del('delivery_lines', b.dataset.id), 'Removed'),
+  deleteDLine: b => { closeSheet(); act(() => del('delivery_lines', b.dataset.id), 'Removed'); },
 
   newIssue: b => formSheet({ title: 'Report a problem', fields: issueFields(b.dataset.delivery), values: { status: 'Open', kind: 'Short' },
     onSave: v => ins('issues', { ...v, delivery_id: b.dataset.delivery || v.delivery_id, resolved_date: v.status === 'Resolved' ? (v.resolved_date || todayISO()) : v.resolved_date }) }),
@@ -1135,6 +1313,47 @@ function exportCSV() {
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 
+
+// ───────────────────────── settings ─────────────────────────
+function settingsSheet() {
+  const mode = resolvedMode();
+  const sw = (k, t) => { const c = t[mode]; return `<span class="swatch"><i style="background:${c.bg}"></i><i style="background:${c.surface}"></i><i style="background:${c.accent}"></i></span>`; };
+  const themeBtn = ([k, t]) => `<button class="theme ${settings.theme === k ? 'on' : ''}" data-act="setTheme" data-v="${k}">${sw(k, t)}<span><b>${esc(t.name)}</b><small>${esc(t.note)}</small></span></button>`;
+  const all = Object.entries(THEMES);
+  const seg = (act, cur, opts) => `<div class="seg wide">${opts.map(([v, l]) => `<button data-act="${act}" data-v="${v}" aria-pressed="${cur === v}">${l}</button>`).join('')}</div>`;
+  const body = `
+    <h3>Themes</h3><div class="themes">${all.filter(([, t]) => !t.popular).map(themeBtn).join('')}</div>
+    <h3>Popular colour schemes</h3><div class="themes">${all.filter(([, t]) => t.popular).map(themeBtn).join('')}</div>
+    <h3>Light or dark</h3>${seg('setMode', settings.mode, [['system', 'Match Windows'], ['light', 'Light'], ['dark', 'Dark']])}
+    <h3>Part number shown first</h3>${seg('setNumFirst', settings.numFirst, [['wet', 'WET number (09110)'], ['client', 'Client number (8481)']])}
+    <p class="hint">Every number still works in search. This only changes which one leads on screen and in exports.</p>
+    <h3>Rows</h3>${seg('setDensity', settings.density, [['comfortable', 'Comfortable'], ['compact', 'Compact']])}
+    <h3>Outstanding screen opens</h3>${seg('setHome', settings.home, [['part', 'By part'], ['line', 'By PO line']])}
+    <h3>Your data</h3>
+    <div class="menu-list">
+      <button data-act="backup">${ICON.down}<span>Download a full backup (all tables, one file)</span></button>
+      <button data-act="reload">${ICON.swap}<span>Reload from the database</span></button>
+      <button data-act="goHistory">${ICON.clock}<span>Change history</span></button>
+      <button data-act="signout">${ICON.out}<span>Sign out (${esc(user ? user.email : '')})</span></button>
+    </div>
+    <p class="hint">Settings are saved in this browser. Data lives in Supabase and is the same everywhere.</p>`;
+  const open = !$('#sheet').hidden && $('#sheet .sheet.settings');
+  if (open) { const sc = $('#sheet .sheet-body').scrollTop; $('#sheet .sheet-body').innerHTML = body; $('#sheet .sheet-body').scrollTop = sc; return; }
+  openSheet({ title: 'Settings', body });
+  $('#sheet .sheet').classList.add('settings');
+}
+
+async function backupAll() {
+  try {
+    await loadAll();
+    const hist = await sb.from('history').select('*').order('at', { ascending: false }).limit(5000);
+    const blob = new Blob([JSON.stringify({ app: 'BK Tracker', exported: new Date().toISOString(), tables: { ...db, history: hist.data || [] } }, null, 1)], { type: 'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `BK Tracker backup ${todayISO()}.json`;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    toast('Backup downloaded');
+  } catch (e) { toast(friendlyError(e), true); }
+}
+
 // ───────────────────────── events ─────────────────────────
 document.addEventListener('click', e => {
   const a = e.target.closest('[data-act]');
@@ -1147,6 +1366,8 @@ document.addEventListener('click', e => {
 });
 // Inline edits: save when the field loses focus / changes
 document.addEventListener('change', e => {
+  const sel = e.target.closest('[data-act-change]');
+  if (sel) { ui[sel.dataset.actChange] = sel.value; render(); return; }
   const el = e.target.closest('[data-edit]'); if (!el) return;
   const [table, id, field] = el.dataset.edit.split(':');
   let v = el.type === 'checkbox' ? el.checked : el.value.trim();

@@ -11,7 +11,7 @@ Same approach as Jino's Tally: plain HTML/CSS/JavaScript, no framework, no build
 
 ## The data model
 - **parts** + **part_numbers**: one row per physical part; it can have any number of part numbers (old, new, client…). One is the *main* number. Search, orders and deliveries accept any of them, and totals combine them.
-- **orders** (one per quote/PO) → **order_lines** (part, qty, *ordered as*, urgent, expected date, unit price, cancelled, *shipped before tracking*).
+- **orders** (one per quote/PO, with shipping's WET SO number) → **order_lines** (part, qty, *ordered as*, urgent, expected date, unit price, cancelled, *shipped before tracking*).
 - **deliveries** (delivery notes) → **delivery_lines** (good quantity received against an order line, *shipped as*).
 - **issues**: short / wrong item / damaged, with status Open → Replacement requested → Resolved.
 - **invoices**: linked to an order and a delivery note, checked against both (three-way match).
@@ -19,6 +19,12 @@ Same approach as Jino's Tally: plain HTML/CSS/JavaScript, no framework, no build
 - **history**: every insert/edit/delete, written automatically by the database.
 
 Worked out, never typed: shipped = shipped before tracking + delivered; outstanding = ordered − shipped (0 if the line is cancelled or the order closed); order status (Quote sent / PO received / Partially shipped / Fully shipped / Closed).
+
+## Settings
+The gear (sidebar bottom, or top right on a phone): the same 15 themes as Tally, light/dark/match Windows, which part number leads (WET or client), row density, which Outstanding view opens, a full JSON backup, sign out. Saved per browser.
+
+## Fixes
+`supabase/fixes/` holds one-off SQL changes, run in order in the SQL Editor. Each is safe to run twice.
 
 ## One-time setup
 1. **Supabase → SQL Editor → New query**: paste `supabase/schema.sql`, put your sign-in email on the line marked `>>>`, **Run**.
