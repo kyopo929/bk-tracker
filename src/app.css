@@ -264,3 +264,8 @@ a.chip:hover { border-color: var(--accent); text-decoration: none; }
   .bar.big { flex-basis: auto; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+.dropzone { display: flex; gap: 18px; align-items: center; justify-content: space-between; border-style: dashed; }
+.dropzone p { max-width: 70ch; }
+details.allrows { margin-top: 22px; }
+details.allrows summary { cursor: pointer; color: var(--muted); margin-bottom: 8px; }

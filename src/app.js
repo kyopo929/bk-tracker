@@ -33,6 +33,7 @@ const ICON = {
   file: '<svg viewBox="0 0 24 24"><path d="M6 3h8l5 5v13H6zM14 3v5h5"/></svg>',
   gear: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
   search: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>',
+  check: '<svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>',
   clock: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
 };
 
@@ -286,10 +287,10 @@ function matchesPart(pid, q) {
 // ───────────────────────── routing ─────────────────────────
 const NAV = [
   ['outstanding', 'Outstanding', 'out'], ['orders', 'Orders', 'box'], ['deliveries', 'Deliveries', 'truck'],
-  ['issues', 'Problems', 'alert'], ['invoices', 'Invoices', 'bill'], ['sep'], ['parts', 'Parts', 'tag'],
+  ['issues', 'Problems', 'alert'], ['invoices', 'Invoices', 'bill'], ['compare', 'Shipping check', 'check'], ['sep'], ['parts', 'Parts', 'tag'],
   ['documents', 'Documents', 'file'], ['history', 'History', 'clock'],
 ];
-const ui = { q: '', outSort: 'oldest', outMode: settings.home === 'line' ? 'line' : 'part', urgentOnly: false, orderFilter: 'open', showArchived: false, issueFilter: 'open', sort: {} };
+const ui = { compare: null, q: '', outSort: 'oldest', outMode: settings.home === 'line' ? 'line' : 'part', urgentOnly: false, orderFilter: 'open', showArchived: false, issueFilter: 'open', sort: {} };
 let exportable = null;   // {name, cols, rows} of the table on screen
 function route() { const p = location.hash.replace(/^#\/?/, '').split('/'); return { view: p[0] || 'outstanding', id: p[1] || null, sub: p[2] || null }; }
 const go = h => { location.hash = h; };
@@ -388,6 +389,7 @@ VIEWS.outstanding = () => {
     <div><b>${oldest || '–'}</b><span>days, oldest PO</span></div>
   </div>`;
   const tools = `<div class="seg"><button data-act="outMode" data-v="part" aria-pressed="${ui.outMode === 'part'}">By part</button><button data-act="outMode" data-v="line" aria-pressed="${ui.outMode === 'line'}">By PO line</button></div>
+    <a class="btn small" href="#/compare">${ICON.check}Compare with shipping list</a>
     <div class="seg"><button data-act="urgentOnly" data-v="0" aria-pressed="${!ui.urgentOnly}">All</button><button data-act="urgentOnly" data-v="1" aria-pressed="${ui.urgentOnly}">Urgent only</button></div>`;
   let html;
   if (ui.outMode === 'part') {
