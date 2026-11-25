@@ -32,6 +32,7 @@ const ICON = {
   tag: '<svg viewBox="0 0 24 24"><path d="M3 12V4h8l10 10-8 8L3 12zM7.5 7.5h.01"/></svg>',
   file: '<svg viewBox="0 0 24 24"><path d="M6 3h8l5 5v13H6zM14 3v5h5"/></svg>',
   gear: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
+  search: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>',
   clock: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
 };
 
@@ -139,6 +140,7 @@ const db = Object.fromEntries(TABLES.map(t => [t, []]));
 let D = {};               // derived indexes, rebuilt after every change
 let loadedAt = 0;
 let hasSO = false;   // true once orders.wet_so exists (supabase/fixes/2026-11-25-wet-so.sql)
+let hasStaged = false; // true once order_lines.staged_qty exists (supabase/fixes/2026-11-25-staged.sql)
 let user = null;
 
 async function fetchAll(table) {
@@ -155,6 +157,7 @@ async function loadAll() {
   TABLES.forEach((t, i) => { db[t] = res[i]; });
   loadedAt = Date.now();
   hasSO = db.orders.length ? 'wet_so' in db.orders[0] : hasSO;
+  hasStaged = db.order_lines.length ? 'staged_qty' in db.order_lines[0] : hasStaged;
   derive();
 }
 function patchLocal(table, row) {
@@ -233,7 +236,8 @@ function derive() {
     const outstanding = (l.cancelled || o.closed) ? 0 : Math.max(0, (+l.qty || 0) - shipped);
     const expected = l.expected_date || o.expected_date || null;
     const openIssues = (D.issuesByLine.get(l.id) || []).filter(i => i.status !== 'Resolved').length;
-    D.L.set(l.id, { delivered, shipped, outstanding, expected, late: !!(expected && outstanding > 0 && expected < today), age: outstanding > 0 ? daysSince(o.po_date) : null, openIssues });
+    const staged = outstanding > 0 ? Math.min(+l.staged_qty || 0, outstanding) : 0;
+    D.L.set(l.id, { delivered, shipped, outstanding, staged, expected, late: !!(expected && outstanding > 0 && expected < today), age: outstanding > 0 ? daysSince(o.po_date) : null, openIssues });
   }
   for (const o of db.orders) {
     const lines = (D.linesByOrder.get(o.id) || []);
@@ -285,7 +289,7 @@ const NAV = [
   ['issues', 'Problems', 'alert'], ['invoices', 'Invoices', 'bill'], ['sep'], ['parts', 'Parts', 'tag'],
   ['documents', 'Documents', 'file'], ['history', 'History', 'clock'],
 ];
-const ui = { q: '', outSort: 'urgent', outMode: settings.home === 'line' ? 'line' : 'part', urgentOnly: false, orderFilter: 'open', showArchived: false, issueFilter: 'open', sort: {} };
+const ui = { q: '', outSort: 'oldest', outMode: settings.home === 'line' ? 'line' : 'part', urgentOnly: false, orderFilter: 'open', showArchived: false, issueFilter: 'open', sort: {} };
 let exportable = null;   // {name, cols, rows} of the table on screen
 function route() { const p = location.hash.replace(/^#\/?/, '').split('/'); return { view: p[0] || 'outstanding', id: p[1] || null, sub: p[2] || null }; }
 const go = h => { location.hash = h; };
@@ -312,10 +316,33 @@ function render() {
   $('#viewTitle').textContent = out.title;
   $('#viewSub').innerHTML = out.sub || '';
   $('#toolbar').innerHTML = (out.tools || '') + (exportable ? `<span class="spacer"></span><button class="btn small" data-act="export">${ICON.down}Export to Excel (CSV)</button><button class="btn small" data-act="print">${ICON.print}Print / PDF</button>` : '');
-  content.innerHTML = out.html;
+  content.innerHTML = searchHint(ui.q) + out.html;
   content.scrollTop = keepScroll;
   render._last = location.hash;
   document.title = out.title + ' · BK Tracker';
+}
+
+
+// When the search is an exact number we know, say what it is.
+function searchHint(raw) {
+  const q = lc(raw.trim()); if (!q) return '';
+  const qs = stripWC(q), out = [];
+  for (const o of db.orders) {
+    const so = lc(o.wet_so);
+    if (so && (q === so || q === 'so ' + so || q === 'so' + so)) out.push(`<b>${esc(raw.trim())}</b> is WET’s sales order (SO) number for your <b>${esc(o.po_number || '')}</b> “${esc(o.title)}”. Shipping uses SO numbers; you and the client use PO numbers. <a href="#/orders/${o.id}">Open the order</a>`);
+    const po = lc(o.po_number);
+    if (po && (q === po || 'po' + q === po)) out.push(`<b>${esc(o.po_number)}</b> is the client’s purchase order “${esc(o.title)}”${o.wet_so ? ` (WET SO ${esc(o.wet_so)})` : ''}. <a href="#/orders/${o.id}">Open the order</a>`);
+  }
+  for (const d of db.deliveries) if (lc(d.dn_number) === q) out.push(`<b>${esc(d.dn_number)}</b> is a delivery note${d.order_id ? ` for ${esc(orderName(d.order_id))}` : ''}${d.ship_date ? `, shipped ${fmtD(d.ship_date)}` : ''}. <a href="#/deliveries/${d.id}">Open the delivery</a>`);
+  const pid = D.partByNumber.get(q) || D.partByNumber.get(qs);
+  if (pid) {
+    const nums = D.numbers.get(pid) || [];
+    const hit = nums.find(n => lc(n.number) === q || lc(n.number) === qs) || {};
+    const kind = /wc$/.test(q) ? 'the client’s number' : ({ new: 'WET’s number', old: 'the client’s (old) number', client: 'the client’s number' }[hit.label] || 'a number');
+    const others = nums.filter(n => n !== hit).map(n => esc(n.number) + (n.label ? ` (${esc(n.label)})` : ''));
+    out.push(`<b>${esc(raw.trim())}</b> is ${kind} for <b>${esc(partDesc(pid))}</b>${others.length ? `, also known as ${others.join(', ')}` : ''}. <a href="#/parts/${pid}">Open the part</a>`);
+  }
+  return out.length ? `<div class="hint-bar">${ICON.search || ''}<div>${out.join('<br>')}</div></div>` : '';
 }
 
 // Generic sortable table that also feeds "Export"
@@ -354,10 +381,11 @@ VIEWS.outstanding = () => {
     <div><b>${fmtN(units)}</b><span>units owed</span></div>
     <div><b>${new Set(open.map(l => l.part_id)).size}</b><span>parts</span></div>
     <div><b>${open.length}</b><span>open PO lines</span></div>
+    ${hasStaged ? `<div><b>${fmtN(sum(open, l => D.L.get(l.id).staged))}</b><span>units staged</span></div>` : ''}
     <div class="${urgentParts.size ? 'hot' : ''}"><b>${urgentParts.size}</b><span>urgent parts</span></div>
     <div class="${late ? 'hot' : ''}"><b>${late}</b><span>past expected date</span></div>
     <div class="${openIssues ? 'hot' : ''}"><a href="#/issues"><b>${openIssues}</b><span>delivery problems</span></a></div>
-    <div><b>${oldest || '–'}</b><span>days, oldest open PO</span></div>
+    <div><b>${oldest || '–'}</b><span>days, oldest PO</span></div>
   </div>`;
   const tools = `<div class="seg"><button data-act="outMode" data-v="part" aria-pressed="${ui.outMode === 'part'}">By part</button><button data-act="outMode" data-v="line" aria-pressed="${ui.outMode === 'line'}">By PO line</button></div>
     <div class="seg"><button data-act="urgentOnly" data-v="0" aria-pressed="${!ui.urgentOnly}">All</button><button data-act="urgentOnly" data-v="1" aria-pressed="${ui.urgentOnly}">Urgent only</button></div>`;
@@ -371,19 +399,31 @@ VIEWS.outstanding = () => {
       pos: ls.map(l => orderName(l.order_id) + ' (' + fmtN(D.L.get(l.id).outstanding) + ')').join(', '),
     })).filter(r => matchesPart(r.pid, q) || lc(r.pos).includes(q) || r.lines.some(l => lc((D.order.get(l.order_id) || {}).wet_so).includes(q)));
     if (ui.urgentOnly) rows = rows.filter(r => r.urgent);
-    const SORTS = { urgent: (a, b) => (b.urgent - a.urgent) || (b.age - a.age) || (b.outstanding - a.outstanding), most: (a, b) => b.outstanding - a.outstanding, oldest: (a, b) => b.age - a.age, number: (a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }) };
-    rows.sort(SORTS[ui.outSort] || SORTS.urgent);
+    const SORTS = {
+      oldest: (a, b) => (b.age - a.age) || (b.urgent - a.urgent) || (b.outstanding - a.outstanding),
+      urgent: (a, b) => (b.urgent - a.urgent) || (b.age - a.age) || (b.outstanding - a.outstanding),
+      most: (a, b) => b.outstanding - a.outstanding,
+      staged: (a, b) => b.staged - a.staged || b.age - a.age,
+      number: (a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }),
+      desc: (a, b) => a.desc.localeCompare(b.desc),
+    };
+    rows.forEach(r => { r.staged = sum(r.lines, l => D.L.get(l.id).staged); });
+    rows.sort(SORTS[ui.outSort] || SORTS.oldest);
     exportable = { name: 'Outstanding by part', rows, cols: [
       { label: 'Part', text: r => r.number }, { label: 'Other numbers', text: r => otherNos(r.pid).join(' / ') }, { label: 'Description', text: r => r.desc },
-      { label: 'Outstanding', text: r => r.outstanding }, { label: 'Urgent', text: r => r.urgent ? 'Urgent' : '' }, { label: 'Oldest (days)', text: r => r.age }, { label: 'On POs', text: r => r.pos }] };
-    const sortSel = `<label class="sortsel">Sort <select data-act-change="outSort">${[['urgent', 'Urgent first'], ['most', 'Most owed'], ['oldest', 'Oldest first'], ['number', 'Part number']].map(([v, l]) => `<option value="${v}" ${(ui.outSort || 'urgent') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`;
-    html = `<div class="listhead"><span>${rows.length} part${rows.length === 1 ? '' : 's'} owed</span>${sortSel}</div>` + (rows.length ? `<div class="backlog">${rows.map(r => `
-      <div class="bl ${r.urgent ? 'urgent' : ''}" data-go="#/parts/${r.pid}">
+      { label: 'Outstanding', text: r => r.outstanding }, ...(hasStaged ? [{ label: 'Staged', text: r => r.staged || '' }] : []),
+      { label: 'Urgent', text: r => r.urgent ? 'Urgent' : '' }, { label: 'Oldest (days)', text: r => r.age }, { label: 'On POs', text: r => r.pos }] };
+    const hcol = (key, label, cls = '') => `<button class="${cls} ${ui.outSort === key ? 'on' : ''}" data-act="outSortBy" data-v="${key}">${label}${ui.outSort === key ? ' ↓' : ''}</button>`;
+    html = rows.length ? `<div class="backlog ${hasStaged ? 'has-staged' : ''}">
+      <div class="bl bl-head">${hcol('number', 'Part')}${hcol('desc', 'Description')}<span>On POs</span>${hasStaged ? hcol('staged', 'Staged', 'r') : ''}${hcol('most', 'Owed', 'r')}${hcol('oldest', 'Days', 'r')}</div>
+      ${rows.map(r => `<div class="bl ${r.urgent ? 'urgent' : ''}" data-go="#/parts/${r.pid}">
         <div class="bl-part"><span class="tag">${esc(r.number)}</span>${otherNos(r.pid).length ? `<span class="aka">${otherNos(r.pid).map(esc).join(' · ')}</span>` : ''}</div>
-        <div class="bl-main"><div class="bl-desc">${esc(r.desc)}${r.urgent ? ' <span class="pill red">Urgent</span>' : ''}</div>
-          <div class="bl-pos">${r.lines.map(l => { const o = D.order.get(l.order_id) || {}; const c = D.L.get(l.id); return `<a class="chip ${l.urgent ? 'u' : ''}" href="#/orders/${l.order_id}" data-stop title="${esc(o.title)}${o.wet_so ? ' · WET SO ' + esc(o.wet_so) : ''}">${esc(o.po_number || o.title)} <b>${fmtN(c.outstanding)}</b></a>`; }).join('')}</div></div>
-        <div class="bl-qty"><b>${fmtN(r.outstanding)}</b><span class="${r.late ? 'late' : ''}">${r.age ? r.age + ' days' : 'new'}</span>${r.shipped > 0 ? `<i class="mini-bar" title="${fmtN(r.shipped)} of ${fmtN(r.ordered)} shipped"><i style="width:${Math.round(r.shipped / r.ordered * 100)}%"></i></i>` : ''}</div>
-      </div>`).join('')}</div>` : `<div class="tbl-wrap"><div class="empty">${q ? 'No outstanding part matches your search.' : 'Nothing outstanding. Everything ordered has been delivered.'}</div></div>`);
+        <div class="bl-desc" title="${esc(r.desc)}">${esc(r.desc)}</div>
+        <div class="bl-pos">${r.lines.slice(0, r.lines.length > 3 ? 2 : 3).map(l => { const o = D.order.get(l.order_id) || {}; const c = D.L.get(l.id); return `<a class="chip ${l.urgent ? 'u' : ''}" href="#/orders/${l.order_id}" data-stop title="${esc(o.title)}${o.wet_so ? ' · WET SO ' + esc(o.wet_so) : ''}">${esc(o.po_number || o.title)} <b>${fmtN(c.outstanding)}</b></a>`; }).join('')}${r.lines.length > 3 ? `<span class="chip more" title="${esc(r.lines.slice(2).map(l => orderName(l.order_id) + ': ' + fmtN(D.L.get(l.id).outstanding)).join(', '))}">+${r.lines.length - 2} more</span>` : ''}</div>
+        ${hasStaged ? `<div class="bl-num">${r.staged ? `<span class="staged" title="Shipping has these staged, ready to ship">${fmtN(r.staged)}</span>` : ''}</div>` : ''}
+        <div class="bl-num bl-owed" title="${r.urgent ? 'Urgent. ' : ''}${fmtN(r.shipped)} of ${fmtN(r.ordered)} shipped so far">${fmtN(r.outstanding)}</div>
+        <div class="bl-num bl-days ${r.late ? 'late' : ''}">${r.age || 'new'}</div>
+      </div>`).join('')}</div>` : `<div class="tbl-wrap"><div class="empty">${q ? 'No outstanding part matches your search.' : 'Nothing outstanding. Everything ordered has been delivered.'}</div></div>`;
   } else {
     let rows = open.map(l => ({ l, ...D.L.get(l.id), o: D.order.get(l.order_id) || {} }))
       .filter(r => matchesPart(r.l.part_id, q) || lc(r.o.po_number).includes(q) || lc(r.o.wet_so).includes(q) || lc(r.o.title).includes(q));
@@ -396,6 +436,7 @@ VIEWS.outstanding = () => {
       { key: 'qty', label: 'Ordered', num: true, sort: r => +r.l.qty, text: r => fmtN(r.l.qty) },
       { key: 'shipped', label: 'Shipped', num: true, text: r => fmtN(r.shipped) },
       { key: 'outstanding', label: 'Owed', num: true, html: r => `<b>${fmtN(r.outstanding)}</b>`, text: r => r.outstanding },
+      ...(hasStaged ? [{ key: 'staged', label: 'Staged', num: true, html: r => r.staged ? `<span class="staged">${fmtN(r.staged)}</span>` : '', text: r => r.staged || '' }] : []),
       { key: 'urgent', label: 'Urgent', sort: r => +r.l.urgent, html: r => r.l.urgent ? '<span class="pill red">Urgent</span>' : '', text: r => r.l.urgent ? 'Urgent' : '' },
       { key: 'age', label: 'Days', num: true, text: r => r.age ?? '' },
       { key: 'expected', label: 'Expected', html: r => `<span class="nowrap ${r.late ? 'late' : ''}">${fmtD(r.expected)}</span>`, text: r => r.expected || '' },
@@ -455,6 +496,7 @@ function orderDetail(id) {
       <td class="num">${fmtN(l.qty)}</td>
       <td class="num">${fmtN(c.shipped)}${+l.shipped_before ? `<div class="alias" title="Shipped before tracking began">${fmtN(l.shipped_before)} earlier</div>` : ''}</td>
       <td class="num"><b>${fmtN(c.outstanding)}</b>${c.openIssues ? ` <span class="flag" title="Open delivery problem">!</span>` : ''}</td>
+      ${hasStaged ? `<td class="num">${c.staged ? `<span class="staged">${fmtN(c.staged)}</span>` : ''}</td>` : ''}
       <td>${l.urgent ? '<span class="pill red">Urgent</span>' : ''}${l.cancelled ? '<span class="pill">Cancelled</span>' : ''}</td>
       <td class="nowrap ${c.late ? 'late' : ''}">${fmtD(l.expected_date)}</td>
       <td class="num">${l.unit_price != null ? money(l.unit_price) : ''}</td>
@@ -470,8 +512,8 @@ function orderDetail(id) {
   };
   const linesHtml = `<div class="section-title"><h2>Lines</h2><span class="small">${lines.length} · click a line to edit it</span><span class="spacer"></span>
       <button class="btn small" data-act="pasteLines" data-id="${id}">Paste lines</button><button class="btn small primary" data-act="addLine" data-id="${id}">${ICON.plus}Add line</button></div>
-    ${lines.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th style="min-width:260px">Part</th><th class="num">Ordered</th><th class="num">Shipped</th><th class="num">Owed</th><th></th><th>Expected</th><th class="num">Unit price</th><th>Notes</th></tr></thead><tbody>${lineRows}</tbody>
-      <tfoot><tr><td>Total</td><td class="num">${fmtN(st.ordered)}</td><td class="num">${fmtN(st.shipped)}</td><td class="num">${fmtN(st.outstanding)}</td><td colspan="4"></td></tr></tfoot></table></div>` : '<div class="tbl-wrap"><div class="empty">No lines yet. Add them one by one, or paste a list.</div></div>'}`;
+    ${lines.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th style="min-width:260px">Part</th><th class="num">Ordered</th><th class="num">Shipped</th><th class="num">Owed</th>${hasStaged ? '<th class="num">Staged</th>' : ''}<th></th><th>Expected</th><th class="num">Unit price</th><th>Notes</th></tr></thead><tbody>${lineRows}</tbody>
+      <tfoot><tr><td>Total</td><td class="num">${fmtN(st.ordered)}</td><td class="num">${fmtN(st.shipped)}</td><td class="num">${fmtN(st.outstanding)}</td>${hasStaged ? `<td class="num">${fmtN(sum(lines, l => D.L.get(l.id).staged)) || ''}</td>` : ''}<td colspan="4"></td></tr></tfoot></table></div>` : '<div class="tbl-wrap"><div class="empty">No lines yet. Add them one by one, or paste a list.</div></div>'}`;
   const delHtml = `<div class="section-title"><h2>Deliveries</h2><span class="spacer"></span><button class="btn small primary" data-act="newDelivery" data-order="${id}">${ICON.plus}Record delivery</button></div>` +
     (dels.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Delivery note</th><th>Shipped</th><th>Received</th><th class="num">Units</th><th>Tracking</th><th>Problems</th></tr></thead><tbody>${dels.map(d => {
       const n = (D.issuesByDelivery.get(d.id) || []).filter(i => i.status !== 'Resolved').length;
@@ -708,7 +750,7 @@ function closeSheet() { const bg = $('#sheet'); bg.hidden = true; bg.innerHTML =
 
 // fields: [{k, label, type, options, full, required, placeholder}]
 function formSheet({ title, intro, fields, values = {}, saveLabel = 'Save', onSave, wide, extraFoot = '' }) {
-  fields = fields.filter(f => !f.needsSO || hasSO);
+  fields = fields.filter(f => (!f.needsSO || hasSO) && (!f.needsStaged || hasStaged));
   const input = f => {
     const v = values[f.k] ?? f.default ?? '';
     if (f.type === 'textarea') return `<textarea name="${f.k}" placeholder="${esc(f.placeholder || '')}">${esc(v)}</textarea>`;
@@ -864,6 +906,7 @@ const ACTIONS = {
   print: () => window.print(),
   refreshHistory: () => { historyCache = null; render(); },
   outMode: b => { ui.outMode = b.dataset.v; render(); },
+  outSortBy: b => { ui.outSort = b.dataset.v; render(); },
   urgentOnly: b => { ui.urgentOnly = b.dataset.v === '1'; render(); },
   orderFilter: b => { ui.orderFilter = b.dataset.v; render(); },
   issueFilter: b => { ui.issueFilter = b.dataset.v; render(); },
@@ -889,10 +932,11 @@ const ACTIONS = {
       fields: [
         { k: 'ordered_as', label: 'Ordered as (number on the PO)', list: (D.numbers.get(l.part_id) || []).map(n => n.number) }, { k: 'qty', label: 'Quantity ordered', type: 'number', required: true },
         { k: 'shipped_before', label: 'Shipped before tracking began', type: 'number' }, { k: 'expected_date', label: 'Expected', type: 'date' },
-        { k: 'unit_price', label: 'Unit price', type: 'number' }, { k: 'urgent', label: 'Urgent', type: 'check' },
+        { k: 'staged_qty', label: 'Staged by shipping (ready to ship)', type: 'number', needsStaged: true }, { k: 'unit_price', label: 'Unit price', type: 'number' },
+        { k: 'urgent', label: 'Urgent', type: 'check' },
         { k: 'cancelled', label: 'Cancelled (stop counting it as owed)', type: 'check' }, { k: 'notes', label: 'Notes', type: 'textarea', full: true }],
       values: l, extraFoot: `<button class="btn" data-act="changeLinePart" data-id="${l.id}">${ICON.swap}Change part</button><button class="btn danger" data-act="deleteLine" data-id="${l.id}">${ICON.trash}Delete line</button>`,
-      onSave: v => upd('order_lines', l.id, { ...v, qty: v.qty ?? 0, shipped_before: v.shipped_before ?? 0 }) });
+      onSave: v => upd('order_lines', l.id, { ...v, qty: v.qty ?? 0, shipped_before: v.shipped_before ?? 0, ...(hasStaged && v.staged_qty !== (l.staged_qty == null ? null : +l.staged_qty) ? { staged_date: v.staged_qty ? todayISO() : null } : {}) }) });
   },
   editDLine: b => {
     const x = db.delivery_lines.find(r => r.id === b.dataset.id); if (!x) return;

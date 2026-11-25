@@ -73,11 +73,15 @@ create table if not exists public.order_lines (
   urgent boolean not null default false,
   expected_date date,
   cancelled boolean not null default false,
+  staged_qty numeric,              -- shipping has this many staged, ready to ship
+  staged_date date,
   notes text,
   sort integer not null default 0,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+alter table public.order_lines add column if not exists staged_qty numeric;
+alter table public.order_lines add column if not exists staged_date date;
 create index if not exists order_lines_order on public.order_lines (order_id);
 create index if not exists order_lines_part on public.order_lines (part_id);
 

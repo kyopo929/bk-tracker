@@ -35,9 +35,9 @@ svg { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none; s
 
 .app { display: grid; grid-template-columns: 232px 1fr; height: 100%; }
 .side { background: var(--side, var(--surface)); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
-.brand { display: flex; align-items: center; gap: 10px; padding: 18px 18px 14px; font: 700 19px/1 var(--font-display); letter-spacing: -.01em; }
+.brand { color: var(--ink); text-decoration: none !important; display: flex; align-items: center; gap: 10px; padding: 18px 18px 14px; font: 700 19px/1 var(--font-display); letter-spacing: -.01em; }
 .brand-mark { width: 26px; height: 26px; border-radius: 8px; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; }
-.brand-mark svg { width: 15px; height: 15px; stroke-width: 2.2; }
+.brand-mark svg { width: 18px; height: 18px; stroke-width: 1.7; }
 .nav { flex: 1; overflow-y: auto; padding: 4px 8px 12px; }
 .nav a { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 8px; color: var(--ink); text-decoration: none; }
 .nav a:hover { background: var(--hover); }
@@ -203,24 +203,34 @@ a.chip:hover { border-color: var(--accent); text-decoration: none; }
 .sortsel select { border: 1px solid var(--line); background: var(--surface); border-radius: 7px; padding: 3px 6px; }
 
 .backlog { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
-.bl { display: grid; grid-template-columns: minmax(130px, 170px) 1fr auto; gap: 18px; align-items: start; padding: calc(var(--pad-y) + 4px) 18px; border-top: 1px solid var(--line); cursor: pointer; position: relative; }
+.bl { display: grid; grid-template-columns: 150px minmax(180px, 1.3fr) minmax(200px, 1.4fr) 82px 58px; gap: 14px; align-items: center; padding: var(--pad-y) 16px; border-top: 1px solid var(--line); cursor: pointer; position: relative; min-height: 44px; }
+.backlog.has-staged .bl { grid-template-columns: 150px minmax(180px, 1.3fr) minmax(200px, 1.4fr) 70px 82px 58px; }
 .bl:first-child { border-top: 0; }
-.bl:hover { background: var(--hover); }
+.bl:not(.bl-head):hover { background: var(--hover); }
 .bl.urgent::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--danger); }
-.bl-part { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
-.tag { font: 600 14.5px/1 var(--font-body); font-variant-numeric: tabular-nums; letter-spacing: .01em; background: var(--accent-soft); color: var(--accent); padding: 5px 8px 5px; border-radius: 6px; }
-.aka { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.bl-desc { font-weight: 500; margin: 2px 0 6px; }
-.bl-pos { display: flex; flex-wrap: wrap; gap: 4px; }
-.bl-pos .chip { margin: 0; background: var(--bg); border-color: transparent; }
+.bl-head { cursor: default; min-height: 0; padding-top: 9px; padding-bottom: 9px; font-size: 12px; color: var(--muted); position: sticky; top: 0; background: var(--surface); z-index: 1; }
+.bl-head button, .bl-head span { color: var(--muted); font-size: 12px; text-align: left; font-weight: 500; }
+.bl-head button.r { text-align: right; }
+.bl-head button.on { color: var(--ink); font-weight: 600; }
+.bl-head button:hover { color: var(--ink); }
+.bl-part { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+.tag { font: 600 13.5px/1 var(--font-body); font-variant-numeric: tabular-nums; background: var(--accent-soft); color: var(--accent); padding: 4px 7px; border-radius: 6px; white-space: nowrap; }
+.aka { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bl-desc { font-weight: 500; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bl-pos { display: flex; flex-wrap: nowrap; gap: 4px; min-width: 0; overflow: hidden; }
+.bl-pos .chip { flex: none; }
+.bl-pos .chip { margin: 0; background: var(--bg); border-color: transparent; font-size: 11.5px; padding: 1px 6px; }
 .bl-pos .chip.u b { color: var(--danger); }
-.bl-qty { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; min-width: 96px; }
-.bl-qty b { font: 700 26px/1 var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
-.bl-qty span { font-size: 12px; color: var(--muted); }
-.bl-qty span.late { color: var(--danger); }
-.mini-bar { display: block; width: 80px; height: 4px; border-radius: 2px; background: var(--bg); overflow: hidden; margin-top: 4px; }
-.mini-bar i { display: block; height: 100%; background: var(--ok); }
-
+.bl-pos .chip.more { color: var(--muted); background: none; }
+.bl-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bl-owed { font: 700 18px/1 var(--font-display); letter-spacing: -.01em; }
+.bl.urgent .bl-owed { color: var(--danger); }
+.bl-days { color: var(--muted); font-size: 13px; }
+.bl-days.late { color: var(--danger); }
+.staged { display: inline-block; background: var(--ok-soft); color: var(--ok); font-weight: 600; font-size: 12.5px; padding: 1px 7px; border-radius: 99px; font-variant-numeric: tabular-nums; }
+.hint-bar { display: flex; gap: 10px; align-items: flex-start; background: var(--accent-soft); color: var(--ink); border-radius: 10px; padding: 10px 14px; margin: 0 0 14px; font-size: 13.5px; line-height: 1.5; }
+.hint-bar svg { color: var(--accent); margin-top: 3px; }
+.hint-bar a { font-weight: 600; white-space: nowrap; }
 .ohead-top { display: flex; align-items: center; gap: 8px; }
 .ohead-title { font: 700 22px/1.2 var(--font-display); letter-spacing: -.01em; margin: 8px 0 10px; }
 .ohead-progress { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; font-size: 13px; color: var(--muted); }
@@ -252,10 +262,15 @@ a.chip:hover { border-color: var(--accent); text-decoration: none; }
 .menu-list button:hover { background: var(--hover); }
 .hint { font-size: 12.5px; color: var(--muted); margin: 6px 2px 0 !important; }
 @media (max-width: 760px) {
-  .bl { grid-template-columns: 1fr auto; gap: 8px 12px; padding: 12px 14px; }
-  .bl-part { flex-direction: row; align-items: center; gap: 8px; grid-column: 1; }
-  .bl-main { grid-column: 1 / -1; grid-row: 2; }
-  .bl-qty { grid-column: 2; grid-row: 1; }
+  .bl, .backlog.has-staged .bl { grid-template-columns: 1fr auto auto; gap: 6px 10px; padding: 10px 14px; }
+  .bl-head { display: none; }
+  .bl-part { grid-column: 1; grid-row: 1; }
+  .bl-desc { grid-column: 1 / -1; grid-row: 2; }
+  .bl-pos { grid-column: 1 / -1; grid-row: 3; flex-wrap: wrap; }
+  .bl-desc { white-space: normal; }
+  .bl-owed { grid-column: 3; grid-row: 1; }
+  .bl-num:not(.bl-owed):not(.bl-days) { grid-column: 2; grid-row: 1; }
+  .bl-days { display: none; }
   .strip > div { flex-basis: 45%; }
   .themes { grid-template-columns: 1fr; }
   .ohead-progress { flex-direction: column; align-items: stretch; }
@@ -268,7 +283,7 @@ a.chip:hover { border-color: var(--accent); text-decoration: none; }
 <body>
 <div class="app" id="app">
   <aside class="side" aria-label="Sections">
-    <div class="brand"><span class="brand-mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c3 4 5.5 7 5.5 10.2A5.5 5.5 0 0 1 6.5 13.2C6.5 10 9 7 12 3z"/></svg></span>BK Tracker</div>
+    <a class="brand" href="#/outstanding" title="BK Tracker home"><span class="brand-mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11.5 7H6.5a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h8.5a2 2 0 0 0 2-2"/><path d="M8.5 7v2.6a.8.8 0 0 0 .8.8h.9a.8.8 0 0 0 .8-.8V7"/><path d="M17 16.5c-2-2.3-3.6-4.3-3.6-6.4a3.6 3.6 0 0 1 7.2 0c0 2.1-1.6 4.1-3.6 6.4z"/><circle cx="17" cy="10.1" r="1.2"/></svg></span>BK Tracker</a>
     <nav class="nav" id="nav"></nav>
     <div class="side-foot" id="sideFoot"></div>
   </aside>
@@ -327,6 +342,7 @@ const ICON = {
   tag: '<svg viewBox="0 0 24 24"><path d="M3 12V4h8l10 10-8 8L3 12zM7.5 7.5h.01"/></svg>',
   file: '<svg viewBox="0 0 24 24"><path d="M6 3h8l5 5v13H6zM14 3v5h5"/></svg>',
   gear: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
+  search: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>',
   clock: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
 };
 
@@ -434,6 +450,7 @@ const db = Object.fromEntries(TABLES.map(t => [t, []]));
 let D = {};               // derived indexes, rebuilt after every change
 let loadedAt = 0;
 let hasSO = false;   // true once orders.wet_so exists (supabase/fixes/2026-11-25-wet-so.sql)
+let hasStaged = false; // true once order_lines.staged_qty exists (supabase/fixes/2026-11-25-staged.sql)
 let user = null;
 
 async function fetchAll(table) {
@@ -450,6 +467,7 @@ async function loadAll() {
   TABLES.forEach((t, i) => { db[t] = res[i]; });
   loadedAt = Date.now();
   hasSO = db.orders.length ? 'wet_so' in db.orders[0] : hasSO;
+  hasStaged = db.order_lines.length ? 'staged_qty' in db.order_lines[0] : hasStaged;
   derive();
 }
 function patchLocal(table, row) {
@@ -528,7 +546,8 @@ function derive() {
     const outstanding = (l.cancelled || o.closed) ? 0 : Math.max(0, (+l.qty || 0) - shipped);
     const expected = l.expected_date || o.expected_date || null;
     const openIssues = (D.issuesByLine.get(l.id) || []).filter(i => i.status !== 'Resolved').length;
-    D.L.set(l.id, { delivered, shipped, outstanding, expected, late: !!(expected && outstanding > 0 && expected < today), age: outstanding > 0 ? daysSince(o.po_date) : null, openIssues });
+    const staged = outstanding > 0 ? Math.min(+l.staged_qty || 0, outstanding) : 0;
+    D.L.set(l.id, { delivered, shipped, outstanding, staged, expected, late: !!(expected && outstanding > 0 && expected < today), age: outstanding > 0 ? daysSince(o.po_date) : null, openIssues });
   }
   for (const o of db.orders) {
     const lines = (D.linesByOrder.get(o.id) || []);
@@ -580,7 +599,7 @@ const NAV = [
   ['issues', 'Problems', 'alert'], ['invoices', 'Invoices', 'bill'], ['sep'], ['parts', 'Parts', 'tag'],
   ['documents', 'Documents', 'file'], ['history', 'History', 'clock'],
 ];
-const ui = { q: '', outSort: 'urgent', outMode: settings.home === 'line' ? 'line' : 'part', urgentOnly: false, orderFilter: 'open', showArchived: false, issueFilter: 'open', sort: {} };
+const ui = { q: '', outSort: 'oldest', outMode: settings.home === 'line' ? 'line' : 'part', urgentOnly: false, orderFilter: 'open', showArchived: false, issueFilter: 'open', sort: {} };
 let exportable = null;   // {name, cols, rows} of the table on screen
 function route() { const p = location.hash.replace(/^#\/?/, '').split('/'); return { view: p[0] || 'outstanding', id: p[1] || null, sub: p[2] || null }; }
 const go = h => { location.hash = h; };
@@ -607,10 +626,33 @@ function render() {
   $('#viewTitle').textContent = out.title;
   $('#viewSub').innerHTML = out.sub || '';
   $('#toolbar').innerHTML = (out.tools || '') + (exportable ? `<span class="spacer"></span><button class="btn small" data-act="export">${ICON.down}Export to Excel (CSV)</button><button class="btn small" data-act="print">${ICON.print}Print / PDF</button>` : '');
-  content.innerHTML = out.html;
+  content.innerHTML = searchHint(ui.q) + out.html;
   content.scrollTop = keepScroll;
   render._last = location.hash;
   document.title = out.title + ' · BK Tracker';
+}
+
+
+// When the search is an exact number we know, say what it is.
+function searchHint(raw) {
+  const q = lc(raw.trim()); if (!q) return '';
+  const qs = stripWC(q), out = [];
+  for (const o of db.orders) {
+    const so = lc(o.wet_so);
+    if (so && (q === so || q === 'so ' + so || q === 'so' + so)) out.push(`<b>${esc(raw.trim())}</b> is WET’s sales order (SO) number for your <b>${esc(o.po_number || '')}</b> “${esc(o.title)}”. Shipping uses SO numbers; you and the client use PO numbers. <a href="#/orders/${o.id}">Open the order</a>`);
+    const po = lc(o.po_number);
+    if (po && (q === po || 'po' + q === po)) out.push(`<b>${esc(o.po_number)}</b> is the client’s purchase order “${esc(o.title)}”${o.wet_so ? ` (WET SO ${esc(o.wet_so)})` : ''}. <a href="#/orders/${o.id}">Open the order</a>`);
+  }
+  for (const d of db.deliveries) if (lc(d.dn_number) === q) out.push(`<b>${esc(d.dn_number)}</b> is a delivery note${d.order_id ? ` for ${esc(orderName(d.order_id))}` : ''}${d.ship_date ? `, shipped ${fmtD(d.ship_date)}` : ''}. <a href="#/deliveries/${d.id}">Open the delivery</a>`);
+  const pid = D.partByNumber.get(q) || D.partByNumber.get(qs);
+  if (pid) {
+    const nums = D.numbers.get(pid) || [];
+    const hit = nums.find(n => lc(n.number) === q || lc(n.number) === qs) || {};
+    const kind = /wc$/.test(q) ? 'the client’s number' : ({ new: 'WET’s number', old: 'the client’s (old) number', client: 'the client’s number' }[hit.label] || 'a number');
+    const others = nums.filter(n => n !== hit).map(n => esc(n.number) + (n.label ? ` (${esc(n.label)})` : ''));
+    out.push(`<b>${esc(raw.trim())}</b> is ${kind} for <b>${esc(partDesc(pid))}</b>${others.length ? `, also known as ${others.join(', ')}` : ''}. <a href="#/parts/${pid}">Open the part</a>`);
+  }
+  return out.length ? `<div class="hint-bar">${ICON.search || ''}<div>${out.join('<br>')}</div></div>` : '';
 }
 
 // Generic sortable table that also feeds "Export"
@@ -649,10 +691,11 @@ VIEWS.outstanding = () => {
     <div><b>${fmtN(units)}</b><span>units owed</span></div>
     <div><b>${new Set(open.map(l => l.part_id)).size}</b><span>parts</span></div>
     <div><b>${open.length}</b><span>open PO lines</span></div>
+    ${hasStaged ? `<div><b>${fmtN(sum(open, l => D.L.get(l.id).staged))}</b><span>units staged</span></div>` : ''}
     <div class="${urgentParts.size ? 'hot' : ''}"><b>${urgentParts.size}</b><span>urgent parts</span></div>
     <div class="${late ? 'hot' : ''}"><b>${late}</b><span>past expected date</span></div>
     <div class="${openIssues ? 'hot' : ''}"><a href="#/issues"><b>${openIssues}</b><span>delivery problems</span></a></div>
-    <div><b>${oldest || '–'}</b><span>days, oldest open PO</span></div>
+    <div><b>${oldest || '–'}</b><span>days, oldest PO</span></div>
   </div>`;
   const tools = `<div class="seg"><button data-act="outMode" data-v="part" aria-pressed="${ui.outMode === 'part'}">By part</button><button data-act="outMode" data-v="line" aria-pressed="${ui.outMode === 'line'}">By PO line</button></div>
     <div class="seg"><button data-act="urgentOnly" data-v="0" aria-pressed="${!ui.urgentOnly}">All</button><button data-act="urgentOnly" data-v="1" aria-pressed="${ui.urgentOnly}">Urgent only</button></div>`;
@@ -666,19 +709,31 @@ VIEWS.outstanding = () => {
       pos: ls.map(l => orderName(l.order_id) + ' (' + fmtN(D.L.get(l.id).outstanding) + ')').join(', '),
     })).filter(r => matchesPart(r.pid, q) || lc(r.pos).includes(q) || r.lines.some(l => lc((D.order.get(l.order_id) || {}).wet_so).includes(q)));
     if (ui.urgentOnly) rows = rows.filter(r => r.urgent);
-    const SORTS = { urgent: (a, b) => (b.urgent - a.urgent) || (b.age - a.age) || (b.outstanding - a.outstanding), most: (a, b) => b.outstanding - a.outstanding, oldest: (a, b) => b.age - a.age, number: (a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }) };
-    rows.sort(SORTS[ui.outSort] || SORTS.urgent);
+    const SORTS = {
+      oldest: (a, b) => (b.age - a.age) || (b.urgent - a.urgent) || (b.outstanding - a.outstanding),
+      urgent: (a, b) => (b.urgent - a.urgent) || (b.age - a.age) || (b.outstanding - a.outstanding),
+      most: (a, b) => b.outstanding - a.outstanding,
+      staged: (a, b) => b.staged - a.staged || b.age - a.age,
+      number: (a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }),
+      desc: (a, b) => a.desc.localeCompare(b.desc),
+    };
+    rows.forEach(r => { r.staged = sum(r.lines, l => D.L.get(l.id).staged); });
+    rows.sort(SORTS[ui.outSort] || SORTS.oldest);
     exportable = { name: 'Outstanding by part', rows, cols: [
       { label: 'Part', text: r => r.number }, { label: 'Other numbers', text: r => otherNos(r.pid).join(' / ') }, { label: 'Description', text: r => r.desc },
-      { label: 'Outstanding', text: r => r.outstanding }, { label: 'Urgent', text: r => r.urgent ? 'Urgent' : '' }, { label: 'Oldest (days)', text: r => r.age }, { label: 'On POs', text: r => r.pos }] };
-    const sortSel = `<label class="sortsel">Sort <select data-act-change="outSort">${[['urgent', 'Urgent first'], ['most', 'Most owed'], ['oldest', 'Oldest first'], ['number', 'Part number']].map(([v, l]) => `<option value="${v}" ${(ui.outSort || 'urgent') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`;
-    html = `<div class="listhead"><span>${rows.length} part${rows.length === 1 ? '' : 's'} owed</span>${sortSel}</div>` + (rows.length ? `<div class="backlog">${rows.map(r => `
-      <div class="bl ${r.urgent ? 'urgent' : ''}" data-go="#/parts/${r.pid}">
+      { label: 'Outstanding', text: r => r.outstanding }, ...(hasStaged ? [{ label: 'Staged', text: r => r.staged || '' }] : []),
+      { label: 'Urgent', text: r => r.urgent ? 'Urgent' : '' }, { label: 'Oldest (days)', text: r => r.age }, { label: 'On POs', text: r => r.pos }] };
+    const hcol = (key, label, cls = '') => `<button class="${cls} ${ui.outSort === key ? 'on' : ''}" data-act="outSortBy" data-v="${key}">${label}${ui.outSort === key ? ' ↓' : ''}</button>`;
+    html = rows.length ? `<div class="backlog ${hasStaged ? 'has-staged' : ''}">
+      <div class="bl bl-head">${hcol('number', 'Part')}${hcol('desc', 'Description')}<span>On POs</span>${hasStaged ? hcol('staged', 'Staged', 'r') : ''}${hcol('most', 'Owed', 'r')}${hcol('oldest', 'Days', 'r')}</div>
+      ${rows.map(r => `<div class="bl ${r.urgent ? 'urgent' : ''}" data-go="#/parts/${r.pid}">
         <div class="bl-part"><span class="tag">${esc(r.number)}</span>${otherNos(r.pid).length ? `<span class="aka">${otherNos(r.pid).map(esc).join(' · ')}</span>` : ''}</div>
-        <div class="bl-main"><div class="bl-desc">${esc(r.desc)}${r.urgent ? ' <span class="pill red">Urgent</span>' : ''}</div>
-          <div class="bl-pos">${r.lines.map(l => { const o = D.order.get(l.order_id) || {}; const c = D.L.get(l.id); return `<a class="chip ${l.urgent ? 'u' : ''}" href="#/orders/${l.order_id}" data-stop title="${esc(o.title)}${o.wet_so ? ' · WET SO ' + esc(o.wet_so) : ''}">${esc(o.po_number || o.title)} <b>${fmtN(c.outstanding)}</b></a>`; }).join('')}</div></div>
-        <div class="bl-qty"><b>${fmtN(r.outstanding)}</b><span class="${r.late ? 'late' : ''}">${r.age ? r.age + ' days' : 'new'}</span>${r.shipped > 0 ? `<i class="mini-bar" title="${fmtN(r.shipped)} of ${fmtN(r.ordered)} shipped"><i style="width:${Math.round(r.shipped / r.ordered * 100)}%"></i></i>` : ''}</div>
-      </div>`).join('')}</div>` : `<div class="tbl-wrap"><div class="empty">${q ? 'No outstanding part matches your search.' : 'Nothing outstanding. Everything ordered has been delivered.'}</div></div>`);
+        <div class="bl-desc" title="${esc(r.desc)}">${esc(r.desc)}</div>
+        <div class="bl-pos">${r.lines.slice(0, r.lines.length > 3 ? 2 : 3).map(l => { const o = D.order.get(l.order_id) || {}; const c = D.L.get(l.id); return `<a class="chip ${l.urgent ? 'u' : ''}" href="#/orders/${l.order_id}" data-stop title="${esc(o.title)}${o.wet_so ? ' · WET SO ' + esc(o.wet_so) : ''}">${esc(o.po_number || o.title)} <b>${fmtN(c.outstanding)}</b></a>`; }).join('')}${r.lines.length > 3 ? `<span class="chip more" title="${esc(r.lines.slice(2).map(l => orderName(l.order_id) + ': ' + fmtN(D.L.get(l.id).outstanding)).join(', '))}">+${r.lines.length - 2} more</span>` : ''}</div>
+        ${hasStaged ? `<div class="bl-num">${r.staged ? `<span class="staged" title="Shipping has these staged, ready to ship">${fmtN(r.staged)}</span>` : ''}</div>` : ''}
+        <div class="bl-num bl-owed" title="${r.urgent ? 'Urgent. ' : ''}${fmtN(r.shipped)} of ${fmtN(r.ordered)} shipped so far">${fmtN(r.outstanding)}</div>
+        <div class="bl-num bl-days ${r.late ? 'late' : ''}">${r.age || 'new'}</div>
+      </div>`).join('')}</div>` : `<div class="tbl-wrap"><div class="empty">${q ? 'No outstanding part matches your search.' : 'Nothing outstanding. Everything ordered has been delivered.'}</div></div>`;
   } else {
     let rows = open.map(l => ({ l, ...D.L.get(l.id), o: D.order.get(l.order_id) || {} }))
       .filter(r => matchesPart(r.l.part_id, q) || lc(r.o.po_number).includes(q) || lc(r.o.wet_so).includes(q) || lc(r.o.title).includes(q));
@@ -691,6 +746,7 @@ VIEWS.outstanding = () => {
       { key: 'qty', label: 'Ordered', num: true, sort: r => +r.l.qty, text: r => fmtN(r.l.qty) },
       { key: 'shipped', label: 'Shipped', num: true, text: r => fmtN(r.shipped) },
       { key: 'outstanding', label: 'Owed', num: true, html: r => `<b>${fmtN(r.outstanding)}</b>`, text: r => r.outstanding },
+      ...(hasStaged ? [{ key: 'staged', label: 'Staged', num: true, html: r => r.staged ? `<span class="staged">${fmtN(r.staged)}</span>` : '', text: r => r.staged || '' }] : []),
       { key: 'urgent', label: 'Urgent', sort: r => +r.l.urgent, html: r => r.l.urgent ? '<span class="pill red">Urgent</span>' : '', text: r => r.l.urgent ? 'Urgent' : '' },
       { key: 'age', label: 'Days', num: true, text: r => r.age ?? '' },
       { key: 'expected', label: 'Expected', html: r => `<span class="nowrap ${r.late ? 'late' : ''}">${fmtD(r.expected)}</span>`, text: r => r.expected || '' },
@@ -750,6 +806,7 @@ function orderDetail(id) {
       <td class="num">${fmtN(l.qty)}</td>
       <td class="num">${fmtN(c.shipped)}${+l.shipped_before ? `<div class="alias" title="Shipped before tracking began">${fmtN(l.shipped_before)} earlier</div>` : ''}</td>
       <td class="num"><b>${fmtN(c.outstanding)}</b>${c.openIssues ? ` <span class="flag" title="Open delivery problem">!</span>` : ''}</td>
+      ${hasStaged ? `<td class="num">${c.staged ? `<span class="staged">${fmtN(c.staged)}</span>` : ''}</td>` : ''}
       <td>${l.urgent ? '<span class="pill red">Urgent</span>' : ''}${l.cancelled ? '<span class="pill">Cancelled</span>' : ''}</td>
       <td class="nowrap ${c.late ? 'late' : ''}">${fmtD(l.expected_date)}</td>
       <td class="num">${l.unit_price != null ? money(l.unit_price) : ''}</td>
@@ -765,8 +822,8 @@ function orderDetail(id) {
   };
   const linesHtml = `<div class="section-title"><h2>Lines</h2><span class="small">${lines.length} · click a line to edit it</span><span class="spacer"></span>
       <button class="btn small" data-act="pasteLines" data-id="${id}">Paste lines</button><button class="btn small primary" data-act="addLine" data-id="${id}">${ICON.plus}Add line</button></div>
-    ${lines.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th style="min-width:260px">Part</th><th class="num">Ordered</th><th class="num">Shipped</th><th class="num">Owed</th><th></th><th>Expected</th><th class="num">Unit price</th><th>Notes</th></tr></thead><tbody>${lineRows}</tbody>
-      <tfoot><tr><td>Total</td><td class="num">${fmtN(st.ordered)}</td><td class="num">${fmtN(st.shipped)}</td><td class="num">${fmtN(st.outstanding)}</td><td colspan="4"></td></tr></tfoot></table></div>` : '<div class="tbl-wrap"><div class="empty">No lines yet. Add them one by one, or paste a list.</div></div>'}`;
+    ${lines.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th style="min-width:260px">Part</th><th class="num">Ordered</th><th class="num">Shipped</th><th class="num">Owed</th>${hasStaged ? '<th class="num">Staged</th>' : ''}<th></th><th>Expected</th><th class="num">Unit price</th><th>Notes</th></tr></thead><tbody>${lineRows}</tbody>
+      <tfoot><tr><td>Total</td><td class="num">${fmtN(st.ordered)}</td><td class="num">${fmtN(st.shipped)}</td><td class="num">${fmtN(st.outstanding)}</td>${hasStaged ? `<td class="num">${fmtN(sum(lines, l => D.L.get(l.id).staged)) || ''}</td>` : ''}<td colspan="4"></td></tr></tfoot></table></div>` : '<div class="tbl-wrap"><div class="empty">No lines yet. Add them one by one, or paste a list.</div></div>'}`;
   const delHtml = `<div class="section-title"><h2>Deliveries</h2><span class="spacer"></span><button class="btn small primary" data-act="newDelivery" data-order="${id}">${ICON.plus}Record delivery</button></div>` +
     (dels.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Delivery note</th><th>Shipped</th><th>Received</th><th class="num">Units</th><th>Tracking</th><th>Problems</th></tr></thead><tbody>${dels.map(d => {
       const n = (D.issuesByDelivery.get(d.id) || []).filter(i => i.status !== 'Resolved').length;
@@ -1003,7 +1060,7 @@ function closeSheet() { const bg = $('#sheet'); bg.hidden = true; bg.innerHTML =
 
 // fields: [{k, label, type, options, full, required, placeholder}]
 function formSheet({ title, intro, fields, values = {}, saveLabel = 'Save', onSave, wide, extraFoot = '' }) {
-  fields = fields.filter(f => !f.needsSO || hasSO);
+  fields = fields.filter(f => (!f.needsSO || hasSO) && (!f.needsStaged || hasStaged));
   const input = f => {
     const v = values[f.k] ?? f.default ?? '';
     if (f.type === 'textarea') return `<textarea name="${f.k}" placeholder="${esc(f.placeholder || '')}">${esc(v)}</textarea>`;
@@ -1159,6 +1216,7 @@ const ACTIONS = {
   print: () => window.print(),
   refreshHistory: () => { historyCache = null; render(); },
   outMode: b => { ui.outMode = b.dataset.v; render(); },
+  outSortBy: b => { ui.outSort = b.dataset.v; render(); },
   urgentOnly: b => { ui.urgentOnly = b.dataset.v === '1'; render(); },
   orderFilter: b => { ui.orderFilter = b.dataset.v; render(); },
   issueFilter: b => { ui.issueFilter = b.dataset.v; render(); },
@@ -1184,10 +1242,11 @@ const ACTIONS = {
       fields: [
         { k: 'ordered_as', label: 'Ordered as (number on the PO)', list: (D.numbers.get(l.part_id) || []).map(n => n.number) }, { k: 'qty', label: 'Quantity ordered', type: 'number', required: true },
         { k: 'shipped_before', label: 'Shipped before tracking began', type: 'number' }, { k: 'expected_date', label: 'Expected', type: 'date' },
-        { k: 'unit_price', label: 'Unit price', type: 'number' }, { k: 'urgent', label: 'Urgent', type: 'check' },
+        { k: 'staged_qty', label: 'Staged by shipping (ready to ship)', type: 'number', needsStaged: true }, { k: 'unit_price', label: 'Unit price', type: 'number' },
+        { k: 'urgent', label: 'Urgent', type: 'check' },
         { k: 'cancelled', label: 'Cancelled (stop counting it as owed)', type: 'check' }, { k: 'notes', label: 'Notes', type: 'textarea', full: true }],
       values: l, extraFoot: `<button class="btn" data-act="changeLinePart" data-id="${l.id}">${ICON.swap}Change part</button><button class="btn danger" data-act="deleteLine" data-id="${l.id}">${ICON.trash}Delete line</button>`,
-      onSave: v => upd('order_lines', l.id, { ...v, qty: v.qty ?? 0, shipped_before: v.shipped_before ?? 0 }) });
+      onSave: v => upd('order_lines', l.id, { ...v, qty: v.qty ?? 0, shipped_before: v.shipped_before ?? 0, ...(hasStaged && v.staged_qty !== (l.staged_qty == null ? null : +l.staged_qty) ? { staged_date: v.staged_qty ? todayISO() : null } : {}) }) });
   },
   editDLine: b => {
     const x = db.delivery_lines.find(r => r.id === b.dataset.id); if (!x) return;
